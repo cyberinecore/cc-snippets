@@ -93,9 +93,13 @@ Details shows the whole snippet and its actions, each with a letter key: `a` app
 
 Delete, from Details (`d`) or from the Delete button under the list for the focused snippet, asks first: `y` deletes, `n` keeps it. The file moves to the `.trash` folder of its snippet folder, so a mistake can be copied back by hand.
 
+![Delete asks first, with No focused](assets/screenshot-delete-confirm.png)
+
 ### Reload after editing files outside Claude
 
 The picker keeps the snippets it loaded. When you open it, it compares the file names and modification times in the snippet folders with what it loaded, without reading the files, and if anything was added, changed or removed it says "Snippet files changed on disk" with a Reload button. The Reload button under the list and `/sn reload` re-read the folders at any time.
+
+![A file changed outside Claude: the picker offers a Reload](assets/screenshot-stale-reload.png)
 
 ![The details screen](assets/screenshot-details.png)
 

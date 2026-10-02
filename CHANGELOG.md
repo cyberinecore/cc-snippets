@@ -2,7 +2,7 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
-## [Unreleased]
+## [0.2.3] - 2026-10-03
 
 - The list's tools row moved back below the results and preview, so Down or Tab from the search field lands on the top hit first.
 

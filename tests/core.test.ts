@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Snippet } from '../types'
-import { mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify } from '../src/model'
+import { mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft } from '../src/model'
 import { placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
+import { fit, plainLine, rowColumns } from '../src/look'
 import { insertAt, redirectEdit } from '../src/caret'
 
 const snip = (over: Partial<Snippet>): Snippet => ({
@@ -184,5 +185,53 @@ describe('slug from title', () => {
     expect(slugify('  Review: the diff (v2)!  ')).toBe('review-the-diff-v2')
     expect(slugify('Tóm tắt PR đầu tiên')).toBe('tom-tat-pr-dau-tien')
     expect(slugify('***')).toBe('')
+  })
+})
+
+describe('title from a draft', () => {
+  test('first non-empty line, first sentence, no trailing punctuation', async () => {
+    expect(titleFromDraft('\n  Fix the login bug. Then run tests.\nmore')).toBe('Fix the login bug')
+    expect(titleFromDraft('## Review: the diff')).toBe('Review: the diff')
+    expect(titleFromDraft('- list item, first')).toBe('list item, first')
+  })
+
+  test('long lines are cut on a word boundary at about 60 characters', async () => {
+    const t = titleFromDraft('word '.repeat(40))
+    expect(t.length).toBeLessThanOrEqual(60)
+    expect(t).toEndWith('word')
+  })
+})
+
+describe('prefix naming', () => {
+  test('a slug segment prefix outranks a title word match', async () => {
+    const list = [
+      snip({ slug: 'notes-ci', title: 'Release notes', path: '/g/1.md' }),
+      snip({ slug: 'generic-ci-policy', title: 'Generic CI policy', path: '/g/2.md' }),
+      snip({ slug: 'cleanup', title: 'Code cleanup in CI', path: '/g/3.md' }),
+    ]
+    expect(rank(list, 'ci').map(s => s.slug)).toEqual(['generic-ci-policy', 'notes-ci', 'cleanup'])
+  })
+})
+
+describe('row columns', () => {
+  test('fit cuts with an ellipsis only when needed', async () => {
+    expect(fit('short', 10)).toBe('short')
+    expect(fit('abcdefghij', 5)).toBe('abcd\u2026')
+  })
+
+  test('title takes what mode, slug and letter leave', async () => {
+    const c = rowColumns(70, ['review-diff', 'pr'])
+    expect(c.slug).toBe(11)
+    expect(c.showMode).toBe(true)
+    expect(c.title + c.slug + 6 + 1 + 6 + 1).toBeLessThanOrEqual(70)
+    expect(rowColumns(50, ['x']).showMode).toBe(false)
+  })
+})
+
+describe('preview text', () => {
+  test('markdown markers are dropped from preview lines', async () => {
+    expect(plainLine('**Generic CI policy for new projects**')).toBe('Generic CI policy for new projects')
+    expect(plainLine('## Default behavior:')).toBe('Default behavior:')
+    expect(plainLine('> use `npm test` first')).toBe('use npm test first')
   })
 })

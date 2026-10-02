@@ -182,3 +182,24 @@ export function slugify(title: string): string {
     .slice(0, 64)
     .replace(/-+$/, '')
 }
+
+export function shortSlug(title: string, max = 40): string {
+  const full = slugify(title)
+  if (full.length <= max) return full
+  const cut = full.slice(0, max + 1)
+  const dash = cut.lastIndexOf('-')
+  return (dash > max / 2 ? cut.slice(0, dash) : full.slice(0, max)).replace(/-+$/, '')
+}
+
+export function titleFromDraft(text: string, max = 60): string {
+  const line = text.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? ''
+  let clean = line.replace(/^[#>*\-\s\d.)]+/, '').replace(/\s+/g, ' ').trim()
+  const sentence = /^(.+?[.!?])(\s|$)/.exec(clean)
+  if (sentence?.[1]) clean = sentence[1]
+  if (clean.length > max) {
+    const cut = clean.slice(0, max + 1)
+    const space = cut.lastIndexOf(' ')
+    clean = space > max / 2 ? cut.slice(0, space) : clean.slice(0, max)
+  }
+  return clean.replace(/[\s,;:.!?-]+$/, '')
+}

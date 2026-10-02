@@ -33,7 +33,7 @@ export type View =
   | { screen: 'list' }
   | { screen: 'detail'; path: string }
   | { screen: 'fill'; path: string; mode: SnippetMode }
-  | { screen: 'form'; op: FormOp; path: string | null }
+  | { screen: 'form'; op: FormOp; path: string | null; fromDraft?: boolean }
   | { screen: 'delete'; path: string }
 
 export type FormOp = 'new' | 'edit' | 'duplicate'

@@ -5,6 +5,7 @@ function tokenScore(s: Snippet, token: string): number {
   const title = s.title.toLowerCase()
   if (slug === token) return 100
   if (slug.startsWith(token)) return 80
+  if (slug.split(/[-_.]/).some(seg => seg.startsWith(token))) return 75
   if (title.startsWith(token)) return 70
   if (title.split(/[\s/_-]+/).some(w => w.startsWith(token))) return 60
   if (slug.includes(token) || title.includes(token)) return 50

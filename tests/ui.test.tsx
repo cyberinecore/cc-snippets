@@ -12,10 +12,10 @@ const FIXTURES: Record<string, string> = {
   [`${ROOT}/broken.md`]: '---\ndesc: no title here\n---\nbody\n',
 }
 
-type World = { files: Map<string, { text: string; mtimeMs: number }>; fills: string[]; submits: string[]; box: { text: string; cursor: number } }
+type World = { files: Map<string, { text: string; mtimeMs: number }>; fills: string[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
 function world(on: On, options: { isPlaced?: boolean } = {}): World {
-  const w: World = { files: new Map(), fills: [], submits: [], box: { text: '', cursor: 0 } }
+  const w: World = { files: new Map(), fills: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
   const isDir = (p: string) => [...w.files.keys()].some(f => f.startsWith(`${p}/`))
@@ -58,10 +58,19 @@ function world(on: On, options: { isPlaced?: boolean } = {}): World {
   })
   on('session.repo', async () => ({ value: null }))
   on('session.root', async () => ({ value: '' }))
-  on('ui.open', async () => ({ value: options.isPlaced === false ? { isPlaced: false as const, reason: 'narrow terminal' } : { isPlaced: true as const } }))
+  on('ui.open', async () => {
+    w.opens++
+    return { value: options.isPlaced === false ? { isPlaced: false as const, reason: 'narrow terminal' } : { isPlaced: true as const } }
+  })
   on('ui.close', async () => ({ value: undefined }))
-  on('ui.focus', async () => ({}))
+  on('ui.focus', async ($, e) => {
+    const target = 'key' in e && typeof e.key === 'string' ? e.key : e.element
+    if (target) w.focuses.push(target)
+    return {}
+  })
   on('ui.status', async () => ({ value: undefined }))
+  on('ui.log', async () => ({ value: undefined }))
+  on('ui.toast', async () => ({ value: undefined }))
   on('prompt.read', async () => ({ value: { ...w.box } }))
   on('prompt.fill', async ($, e) => {
     w.fills.push(e.text)
@@ -97,9 +106,9 @@ describe('picker', () => {
       expect(loaded.text).toMatch(/3 snippet\(s\) loaded, 1 skipped/)
       await $.command.run(run(''))
       const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
-      expect((await ui.find({ type: 'Text', text: /^Results / }))?.text).toMatch(/Results 3/)
+      expect((await ui.find({ type: 'Text', text: /^\d+\/\d+/ }))?.text).toMatch(/^3\/3/)
       await ui.input({ key: 'q', text: 'review', kind: 'change' })
-      expect((await ui.find({ type: 'Text', text: /^Results / }))?.text).toMatch(/Results 1/)
+      expect((await ui.find({ type: 'Text', text: /^\d+\/\d+/ }))?.text).toMatch(/^1\/3/)
       await ui.input({ key: 'q', text: 'review' })
       expect(await ui.find({ key: 'v:base' })).toBeDefined()
       expect(await ui.find({ key: 'v:scope' })).toBeDefined()
@@ -127,6 +136,61 @@ describe('picker', () => {
       await ui.unmount()
     })
   }
+})
+
+describe('page size', () => {
+  test('inline panes size pages from the requested rows, not the last drawn height', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const tiny = { ...paneProps(60, 'inline'), scroll: { offset: 0, bodyRows: 3 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: tiny })
+    expect((await ui.findAll({ type: "Button" })).filter(b => (b.key ?? "").startsWith("r:"))).toHaveLength(4)
+    await ui.unmount()
+  })
+})
+
+describe('layout', () => {
+  test('rows show title, mode, slug and a source letter; the focused body previews below', async ($, on) => {
+    world(on)
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(70, 'dock') })
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    expect(texts.some(t => t.trim() === 'multi-line')).toBe(true)
+    expect(texts).toContain('G')
+    expect(texts.some(t => t.startsWith('fill'))).toBe(true)
+    expect(texts).toContain('Before writing code:')
+    await ui.unmount()
+  })
+})
+
+describe('short docked pane', () => {
+  test('with 8 body rows the list keeps at least 3 rows and the bottom row; the preview drops', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const short = { ...paneProps(150, 'dock'), scroll: { offset: 0, bodyRows: 8 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: short })
+    const rows = (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:'))
+    expect(rows.length).toBeGreaterThanOrEqual(3)
+    expect(await ui.find({ key: 'new' })).toBeDefined()
+    expect((await ui.findAll({ type: 'Text' })).some(t => t.text.startsWith('\u2500'))).toBe(false)
+    await ui.unmount()
+  })
+})
+
+describe('long titles', () => {
+  test('a long title is cut to its column and the slug keeps its full width', async ($, on) => {
+    const w = world(on)
+    w.files.set(`${ROOT}/long-title.md`, { text: '---\ntitle: Refactor the authentication module so access tokens refresh before they expire\n---\nb\n', mtimeMs: 500 })
+    await $.command.run(run('long'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    const row = await ui.find({ key: `r:${ROOT}/long-title.md` })
+    expect((row?.text ?? '').length).toBeLessThanOrEqual(60)
+    expect(row?.text ?? '').toEndWith('\u2026')
+    expect((await ui.findAll({ type: 'Text' })).some(t => t.text.trim() === 'long-title')).toBe(true)
+    await ui.unmount()
+  })
 })
 
 describe('manage', () => {
@@ -253,6 +317,52 @@ describe('insert at the caret with ;;', () => {
     await ui.unmount()
   })
 
+  test('Save this draft as a snippet: form prefilled, file written globally, draft restored', async ($, on) => {
+    const w = world(on)
+    const clock = mock.clock(on)
+    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+    await $.command.run(run('reload'))
+    const draft = 'Fix the flaky login test. Keep it small.\nline 2;'
+    await editOf($.prompt)(typeTrigger(draft, draft.length))
+    await clock.advance(1)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    await ui.press({ key: 'save-draft' })
+    expect((await ui.find({ key: 'f:title' }))?.props.value).toBe('Fix the flaky login test')
+    expect((await ui.find({ key: 'f:slug' }))?.props.value).toBe('fix-the-flaky-login-test')
+    await ui.press({ key: 'save' })
+    expect(w.files.get(`${ROOT}/fix-the-flaky-login-test.md`)?.text).toBe('---\ntitle: Fix the flaky login test\n---\nFix the flaky login test. Keep it small.\nline 2\n')
+    expect(w.fills[w.fills.length - 1]).toBe('Fix the flaky login test. Keep it small.\nline 2')
+    await ui.unmount()
+  })
+
+  test('the save-draft row is absent when no draft is held', async ($, on) => {
+    world(on)
+    await $.command.run(run(''))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    expect(await ui.find({ key: 'save-draft' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('a placeholder snippet picked from ;; reclaims the keyboard for its form, and composer submits are held back', async ($, on) => {
+    const w = world(on)
+    const clock = mock.clock(on)
+    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+    await $.command.run(run('reload'))
+    await editOf($.prompt)(typeTrigger('explain ;now', 9))
+    await clock.advance(1)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    const opensBefore = w.opens
+    await ui.press({ key: `r:${ROOT}/review-diff.md` })
+    expect(w.opens).toBeGreaterThan(opensBefore)
+    const sent = await $.prompt.submit({ text: 'src/auth/session.ts', wait: false, origin: { kind: 'composer' } })
+    expect(sent.drop).toMatch(/holding your draft/)
+    expect(w.submits).toHaveLength(0)
+    await ui.input({ key: 'v:scope', text: 'auth', kind: 'change' })
+    await ui.press({ key: 'apply' })
+    expect(w.fills[w.fills.length - 1]).toBe('explain Review the diff against main and report only merge blockers for auth.now')
+    await ui.unmount()
+  })
+
   test('a single ; types normally', async ($, on) => {
     world(on)
     on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
@@ -262,6 +372,15 @@ describe('insert at the caret with ;;', () => {
 })
 
 describe('commands', () => {
+  test('/snippets is the full name of /sn and runs the same subcommands', async ($, on) => {
+    world(on)
+    await $.command.run({ ...run('reload'), command: 'snippets' })
+    const viaFull = await $.command.run({ ...run('list'), command: 'snippets' })
+    const viaShort = await $.command.run(run('list'))
+    expect(viaFull.text).toMatch(/review-diff - Review current diff/)
+    expect(viaFull.text).toBe(viaShort.text)
+  })
+
   test('/sn doctor names the broken file and /sn list prints slugs', async ($, on) => {
     world(on)
     await $.command.run(run('reload'))

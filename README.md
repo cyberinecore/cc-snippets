@@ -2,9 +2,13 @@
 
 ![Cyberine Snippets](assets/banner.png)
 
-A Claude Code plugin that keeps your saved prompts as plain Markdown files and puts them in the prompt box from a keyboard picker. Type `/sn`, or `;;` anywhere in a prompt you are writing, find a snippet, press Enter. Snippets are files, not skills, so they cost the model no context until you use one, and you can create, edit, duplicate and delete them without leaving the session.
+A Claude Code plugin that keeps your saved prompts as plain Markdown files and puts them in the prompt box from a keyboard picker. Type `/snippets` (or the short `/sn`), or `;;` anywhere in a prompt you are writing, find a snippet, press Enter. Snippets are files, not skills, so they cost the model no context until you use one, and you can create, edit, duplicate and delete them without leaving the session.
 
 Requires Claude Code 2.1.287 or newer. The plugin is a mod (function hooks), which loads in the terminal and in the Desktop app's Code tab. The VS Code chat panel and `claude -p` run its commands but draw no pane, so use `/sn list` there.
+
+![The picker docked beside the transcript](assets/screenshot-picker-dock.png)
+
+![Typing "rev" narrows the list; the focused snippet previews below](assets/screenshot-picker-search.png)
 
 ## Install
 
@@ -53,9 +57,11 @@ A file that fails to parse is skipped and listed by `/sn doctor`; it never stops
 
 ## Using the picker
 
-`/sn` opens the pane with the search field focused. Typing filters by title, slug, tags and description; the most-used snippets come first when the search is empty. Down or Tab moves from the search field straight to the results; Enter on a result applies it, and Enter in the search field applies the top hit. Below the results sit New and the Source and Tag filters (press to cycle).
+`/sn` opens the pane with the search field focused. Typing filters by title, slug, tags and description; the most-used snippets come first when the search is empty. Each result is one line: the title, its mode, its slug and `G` (global) or `P` (project). Below a divider the focused snippet's description and first body lines preview. Down or Tab moves from the search field straight to the results; Enter on a result applies it, and Enter in the search field applies the top hit. The bottom row holds Details (for the focused result), New and the Source and Tag filters (press to cycle). New snippets are saved to the global folder; the Save to button in the form switches to the project folder.
 
 To insert a snippet into a prompt you are already writing, type `;;` where it should go. The plugin holds your draft, opens the picker, and puts the draft back with the snippet inserted at that spot (a `submit` snippet is inserted too, never sent). Esc puts the draft back unchanged. `/sn` itself starts from an empty prompt box, since typing the command replaces what the box held.
+
+To save the prompt you are writing as a snippet, type `;;` in it and press Up once from the search field: "Save this draft as a snippet" opens the New form with the draft as the body, the title taken from its first sentence and the slug derived from the title. Save writes the file and puts your draft back in the prompt box, so you can still send it.
 
 A `fill` snippet lands in the prompt box and the pane closes. A second Enter then sends it to Claude, as with anything you type, so review or edit it first if you need to.
 
@@ -69,7 +75,7 @@ Esc closes the pane on every screen.
 
 | Command | Does |
 |---|---|
-| `/sn` | Open the picker |
+| `/snippets` or `/sn` | Open the picker (`/snippets` is the full name; `/sn` is the short alias, and every row below works with either) |
 | `/sn <query>` | Open the picker pre-filtered |
 | `/sn new [slug]` | Create a snippet |
 | `/sn cancel` | Stop editing a snippet body in the prompt box |

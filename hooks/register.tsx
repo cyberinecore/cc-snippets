@@ -2,8 +2,8 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, Library, LoadError, Snippet, SnippetMode, SnippetSource, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import { LOOK, WIDE_MIN, bodyExcerpt, metaLine, modeLabel, otherMode, pageSize, previewLines } from '../src/look'
-import { mergeSources, parseSnippet, serializeSnippet, slugFromPath, slugify } from '../src/model'
+import { BULLET, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
+import { mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
 import { placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 
@@ -22,7 +22,8 @@ const bodyEditRef = { plugin: 'cyberine-snippets', key: 'bodyEdit' } as const
 const heldRef = { plugin: 'cyberine-snippets', key: 'held' } as const
 
 const PANE = 'snippets'
-const PANE_ROWS = 18
+const PANE_ROWS = 20
+const INLINE_BUDGET = 11
 const TRIGGER = ';;'
 const SLUG_OK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const MAX_FILES = 2000
@@ -70,6 +71,13 @@ async function byPath($: EngineInterface, path: string): Promise<Snippet | undef
 async function go($: EngineInterface, view: View): Promise<void> {
   await $.state.set(formErrorRef, '')
   await $.state.set(viewRef, view)
+  if (view.screen === 'fill' || view.screen === 'form') await claimKeys($, view.screen === 'form' ? 'f:title' : null)
+}
+
+async function claimKeys($: EngineInterface, key: string | null): Promise<void> {
+  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
+  $.ui.log(`focus: reclaim for ${key ?? 'fill form'} isPlaced=${String(r.isPlaced)}`, { to: 'debug' })
+  if (key) await $.ui.focus({ requestId: PANE, key }).catch(() => undefined)
 }
 
 async function walk($: EngineInterface, dir: string, depth: number, out: Array<{ path: string; mtimeMs: number }>): Promise<void> {
@@ -165,7 +173,8 @@ async function focusFromTrigger($: EngineInterface): Promise<void> {
   if (!r.isPlaced) {
     await $.ui.close({ id: PANE })
     await restoreHeld($, 'not placed')
-    $.ui.status(`Snippets picker could not open (${r.reason}); your draft is back. Use /sn from an empty prompt.`)
+    $.ui.log(`trigger: not placed: ${r.reason}`, { to: 'debug' })
+    $.ui.status('Snippets picker needs a wider terminal (about 110+ columns); your draft is back. /sn opens it at any width.')
   }
 }
 
@@ -222,13 +231,15 @@ async function choose($: EngineInterface, path: string, mode?: SnippetMode): Pro
     for (const p of names) values[p.name] = p.default
     await $.state.set(valuesRef, { ...values })
     await go($, { screen: 'fill', path, mode: mode ?? s.mode })
+    const first = names[0]
+    if (first) await $.ui.focus({ requestId: PANE, key: `v:${first.name}` }).catch(() => undefined)
     return
   }
   await applyNow($, s, {}, mode ?? s.mode)
 }
 
-function draftFrom(s: Snippet | undefined, op: FormOp, hasProject: boolean): Draft {
-  if (!s) return { title: '', slug: '', desc: '', tags: '', mode: 'fill', source: hasProject ? 'project' : 'global', body: '' }
+function draftFrom(s: Snippet | undefined, op: FormOp): Draft {
+  if (!s) return { title: '', slug: '', desc: '', tags: '', mode: 'fill', source: 'global', body: '' }
   return {
     title: op === 'duplicate' ? `${s.title} (copy)` : s.title,
     slug: op === 'duplicate' ? `${s.slug}-copy` : s.slug,
@@ -240,17 +251,20 @@ function draftFrom(s: Snippet | undefined, op: FormOp, hasProject: boolean): Dra
   }
 }
 
-async function startForm($: EngineInterface, op: FormOp, path: string | null, preset?: { slug?: string; body?: string }): Promise<void> {
+async function startForm($: EngineInterface, op: FormOp, path: string | null, preset?: { slug?: string; body?: string; fromDraft?: boolean }): Promise<void> {
   const s = path ? await byPath($, path) : undefined
-  const lib = await getLibrary($)
-  const draft = draftFrom(op === 'new' ? undefined : s, op, Boolean(lib?.roots.project))
+  const draft = draftFrom(op === 'new' ? undefined : s, op)
   if (preset?.slug) {
     draft.slug = preset.slug
     draft.title = preset.slug.replace(/[-_.]+/g, ' ')
   }
   if (preset?.body !== undefined) draft.body = preset.body
+  if (preset?.fromDraft) {
+    draft.title = titleFromDraft(draft.body) || 'Untitled snippet'
+    draft.slug = shortSlug(draft.title) || 'snippet'
+  }
   await $.state.set(draftRef, draft)
-  await go($, { screen: 'form', op, path: op === 'new' ? null : path })
+  await go($, { screen: 'form', op, path: op === 'new' ? null : path, fromDraft: preset?.fromDraft })
 }
 
 function stamp(): string {
@@ -281,7 +295,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
   isWriting = true
   try {
     const title = draft.title.trim()
-    const slug = draft.slug.trim() || slugify(title)
+    const slug = draft.slug.trim() || shortSlug(title)
     if (!title) return { ok: false, error: 'Title is required' }
     if (!SLUG_OK.test(slug)) return { ok: false, error: 'Slug: letters, digits, . _ - only, starting with a letter or digit' }
     const tags = draft.tags.split(',').map(t => t.trim()).filter(Boolean)
@@ -293,7 +307,12 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
     const root = source === 'project' ? lib?.roots.project : lib?.roots.global
     if (!root) return { ok: false, error: 'No project folder in this session; choose global' }
     const clash = lib?.all.find(s => s.source === source && s.slug === slug && !(isEdit && s.path === original.path))
-    if (clash) return { ok: false, error: `A ${source} snippet with slug "${slug}" already exists (${clash.path})` }
+    if (clash) {
+      const taken = new Set(lib?.all.filter(s => s.source === source).map(s => s.slug))
+      let n = 2
+      while (taken.has(`${slug}-${n}`)) n++
+      return { ok: false, error: `A ${source} snippet with slug "${slug}" already exists (${clash.path}); try "${slug}-${n}"` }
+    }
     const keepPath = isEdit && (slug === original.slug || slugFromPath(original.path) !== original.slug)
     const path = keepPath && original ? original.path : `${root}/${slug}.md`
     const body = draft.body.replace(/\r\n/g, '\n').replace(/\s+$/, '')
@@ -353,7 +372,7 @@ async function renderPane($: EngineInterface, e: PaneEvent) {
     case 'fill':
       return renderFill($, e, view.path, view.mode)
     case 'form':
-      return renderForm($, e, view.op, view.path)
+      return renderForm($, e, view.op, view.path, view.fromDraft === true)
     case 'delete':
       return renderDelete($, e, view.path)
     default:
@@ -379,15 +398,24 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const filter = (await $.state.get(filterRef)).value ?? ALL_FILTER
   const page = (await $.state.get(pageRef)).value ?? 0
   const focused = (await $.state.get(focusedRef)).value ?? null
+  const { value: held } = await $.state.get(heldRef)
   const all = library?.snippets ?? []
-  const isWide = e.props.bodyColumns >= WIDE_MIN && e.props.placement !== 'dock'
+  const placement = e.props.placement
+  const cols = Math.max(20, e.props.bodyColumns - 1)
   const matches = (q: string, f: Filter) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage)
   const hits = matches(query, filter)
-  const size = pageSize(e.props.placement, isWide)
+  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : INLINE_BUDGET, Boolean(held && held.text.trim()))
+  const size = layout.rows
   const pages = Math.max(1, Math.ceil(hits.length / size))
   const current = Math.min(page, pages - 1)
   const shown = hits.slice(current * size, current * size + size)
-  const preview = hits.find(s => s.path === focused) ?? shown[0]
+  const focusedHit = hits.find(s => s.path === focused) ?? shown[0]
+  const col = rowColumns(cols, shown.map(s => s.slug))
+  const previewText = !focusedHit || layout.previewLines === 0
+    ? []
+    : layout.previewLines === 1
+      ? [plainLine(shortDesc(focusedHit))].filter(l => l.trim() !== '')
+      : previewOf(focusedHit, layout.previewLines).filter(l => l.trim() !== '')
   const tags = [...new Set(all.flatMap(s => s.tags))].sort()
   const errors = library?.errors.length ?? 0
   const hasProject = Boolean(library?.roots.project)
@@ -414,11 +442,19 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     void $.state.set(focusedRef, null)
   }
   const openNew = () => { void startForm($, 'new', null) }
+  const hasDraft = Boolean(held && held.text.trim())
+  const saveDraftButton = hasDraft ? (
+    <Box key="save-draft-row" flexDirection="column">
+      <Button plain key="save-draft" onPress={() => { void startForm($, 'new', null, { body: held?.text ?? '', fromDraft: true }) }}>[ Save this draft as a snippet ]</Button>
+      <Text key="save-draft-preview" {...LOOK.meta} wrap="truncate-end">{`  "${(held?.text ?? '').replace(/\s+/g, ' ').trim()}"  (Up from search)`}</Text>
+    </Box>
+  ) : null
 
   if (all.length === 0) {
     return (
       <Box flexDirection="column" gap={1}>
         <Text key="empty" {...LOOK.heading}>No snippets yet</Text>
+        {saveDraftButton}
         <Text key="where" {...LOOK.meta} wrap="wrap">{`Add .md files under ${library?.roots.global ?? '~/.claude/snippets'}${hasProject ? ` or ${library?.roots.project}` : ''}, or create one here.`}</Text>
         {errors > 0 ? <Text key="errs" {...LOOK.error}>{`${errors} file(s) skipped, run /sn doctor`}</Text> : null}
         <Button plain key="new-empty" variant="primary" autoFocus onPress={openNew}>[ New snippet ]</Button>
@@ -427,51 +463,51 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   }
 
   return (
-    <Box flexDirection="column">
-      <Input key="q" label="Search " autoFocus placeholder="title, slug, tag, desc" value={query} submitLabel="use top hit" onInput={setQuery} onSubmit={submitSearch} />
-      <Box key="main" flexDirection={isWide ? 'row' : 'column'} columnGap={2} marginTop={1}>
-        <Box key="results" flexDirection="column" width={isWide ? '50%' : undefined} flexShrink={0}>
-          <Text key="count" {...LOOK.meta}>{`Results ${hits.length}${errors > 0 ? `  |  ${errors} skipped, /sn doctor` : ''}`}</Text>
-          {shown.length === 0 ? (
-            <Box key="none" flexDirection="column">
-              <Text key="none-t">No matches</Text>
-              <Box key="none-acts" flexDirection="row" gap={2}>
-                <Button plain key="clear-q" onPress={() => setQuery('')}>[ Clear search ]</Button>
-                {filter.source !== 'all' || filter.tag ? <Button plain key="clear-f" onPress={() => patchFilter(ALL_FILTER)}>[ Clear filters ]</Button> : null}
-              </Box>
+    <Box flexDirection="column" paddingRight={1}>
+      {saveDraftButton}
+      <Input key="q" label="Search " autoFocus placeholder="type to filter" value={query} submitLabel="use top hit" onInput={setQuery} onSubmit={submitSearch} />
+      <Box key="results" flexDirection="column" marginTop={layout.hasMargins ? 1 : 0} paddingLeft={1}>
+        {shown.length === 0 ? (
+          <Box key="none" flexDirection="column">
+            <Text key="none-t" {...LOOK.meta}>No matches</Text>
+            <Box key="none-acts" flexDirection="row" gap={2}>
+              <Button plain key="clear-q" onPress={() => setQuery('')}>[ Clear search ]</Button>
+              {filter.source !== 'all' || filter.tag ? <Button plain key="clear-f" onPress={() => patchFilter(ALL_FILTER)}>[ Clear filters ]</Button> : null}
             </Box>
-          ) : null}
-          {shown.map(s => (
-            <Box key={`row-${s.path}`} flexDirection="column">
-              <Button key={`r:${s.path}`} plain onPress={() => { void choose($, s.path) }}>{s.title}</Button>
-              <Text key={`m:${s.path}`} {...LOOK.meta} wrap="truncate-end">{`  ${metaLine(s)}`}</Text>
-            </Box>
-          ))}
-          {pages > 1 ? (
-            <Box key="pager" flexDirection="row" gap={2}>
-              <Text key="pg" {...LOOK.meta}>{`Page ${current + 1}/${pages}`}</Text>
-              <Button plain key="prev" onPress={turn(-1)}>[ Prev ]</Button>
-              <Button plain key="next" onPress={turn(1)}>[ Next ]</Button>
-            </Box>
-          ) : null}
-        </Box>
-        {preview ? (
-          <Box key="preview" flexDirection="column" flexGrow={1}>
-            <Text key="p-title" {...LOOK.title} wrap="truncate-end">{preview.title}</Text>
-            {preview.desc ? <Text key="p-desc" {...LOOK.meta} wrap="truncate-end">{preview.desc}</Text> : null}
-            {bodyExcerpt(preview.body, previewLines(e.props.placement, isWide)).map((line, i) => (
-              <Text key={`p-l${i}`} wrap="truncate-end">{line || ' '}</Text>
-            ))}
-            <Button plain key="details" onPress={() => { void go($, { screen: 'detail', path: preview.path }) }}>[ Details ]</Button>
           </Box>
         ) : null}
+        {shown.map(s => (
+          <Box key={`row-${s.path}`} flexDirection="row" columnGap={2}>
+            <Box key={`t-${s.path}`} flexGrow={1}>
+              <Button key={`r:${s.path}`} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>
+            </Box>
+            {col.showMode ? <Text key={`mo:${s.path}`} {...LOOK.meta}>{s.mode.padEnd(6)}</Text> : null}
+            <Text key={`sl:${s.path}`} {...LOOK.accent}>{fit(s.slug, col.slug).padStart(col.slug)}</Text>
+            <Text key={`b:${s.path}`} {...LOOK.badge}>{sourceLetter(s)}</Text>
+          </Box>
+        ))}
       </Box>
-      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
+      {pages > 1 ? (
+        <Box key="pager" flexDirection="row" gap={2}>
+          {current > 0 ? <Button plain key="prev" onPress={turn(-1)}>[ Prev ]</Button> : null}
+          <Text key="pg" {...LOOK.meta}>{`page ${current + 1}/${pages}`}</Text>
+          {current < pages - 1 ? <Button plain key="next" onPress={turn(1)}>[ Next ]</Button> : null}
+        </Box>
+      ) : null}
+      {previewText.length > 0 ? (
+        <Box key="preview" flexDirection="column">
+          <Text key="rule" {...LOOK.rule}>{'\u2500'.repeat(Math.max(8, cols))}</Text>
+          {focusedHit?.desc && layout.showDesc ? <Text key="p-desc" {...LOOK.meta} wrap="truncate-end">{focusedHit.desc}</Text> : null}
+          {previewText.map((line, i) => <Text key={`p-l${i}`} wrap="truncate-end">{line}</Text>)}
+        </Box>
+      ) : null}
+      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={layout.hasMargins ? 1 : 0}>
+        {focusedHit ? <Button plain key="details" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>[ Details ]</Button> : null}
         <Button plain key="new" onPress={openNew}>[ New ]</Button>
         <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
         {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
+        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{`${hits.length}/${all.length}${errors > 0 ? ` (${errors} skipped)` : ''}  Enter use  Tab move  Esc close`}</Text>
       </Box>
-      <Text key="hint" {...LOOK.hint} wrap="truncate-end">{isWide ? 'Enter use  Tab move  Details edit/delete  Esc close' : 'Enter use  Tab move  Esc close'}</Text>
     </Box>
   )
 }
@@ -550,7 +586,7 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
 const FORM_TITLE: Record<FormOp, string> = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' }
 const FIELDS = ['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body'] as const
 
-async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: string | null) {
+async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: string | null, fromDraft: boolean) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const draft = (await $.state.get(draftRef)).value
   const error = (await $.state.get(formErrorRef)).value ?? ''
@@ -560,11 +596,11 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
   const setTitle = (v: string) => {
     void update($, draftRef, cur => {
       const base = cur ?? draft
-      const isDerived = op !== 'edit' && (base.slug === '' || base.slug === slugify(base.title))
-      return { ...base, title: v, slug: isDerived ? slugify(v) : base.slug }
+      const isDerived = op !== 'edit' && (base.slug === '' || base.slug === shortSlug(base.title))
+      return { ...base, title: v, slug: isDerived ? shortSlug(v) : base.slug }
     })
   }
-  const hasBodyField = op === 'new' && !draft.body.includes('\n')
+  const hasBodyField = op === 'new' && !fromDraft && !draft.body.includes('\n')
   const order = FIELDS.filter(k => k !== 'f:body' || hasBodyField)
   const nextFrom = (key: (typeof FIELDS)[number]) => () => {
     const next = order[order.indexOf(key) + 1]
@@ -579,6 +615,12 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
         await $.state.set(formErrorRef, r.error)
         return
       }
+      if (fromDraft) {
+        await closePicker($)
+        await restoreHeld($, 'saved draft as snippet')
+        $.ui.toast(`snippets: saved as ${r.saved.slug} (${current.source}); your draft is back in the prompt`)
+        return
+      }
       if (thenEditBody) {
         await editBodyInPrompt($, r.saved)
         return
@@ -589,7 +631,7 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
   const lines = draft.body ? draft.body.split('\n').length : 0
   return (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading}>{FORM_TITLE[op]}</Text>
+      <Text key="h" {...LOOK.heading}>{fromDraft ? 'Save draft as snippet' : FORM_TITLE[op]}</Text>
       <Input key="f:title" label="Title " autoFocus value={draft.title} placeholder="e.g. Summarize this PR" onInput={setTitle} onSubmit={nextFrom('f:title')} />
       <Input key="f:slug" label="Slug  " value={draft.slug} placeholder={op === 'edit' ? 'required' : 'derived from the title'} onInput={v => set({ slug: v })} onSubmit={nextFrom('f:slug')} />
       <Input key="f:desc" label="Desc  " value={draft.desc} placeholder="one line, optional" onInput={v => set({ desc: v })} onSubmit={nextFrom('f:desc')} />
@@ -597,8 +639,12 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
       {hasBodyField ? (
         <Input key="f:body" label="Body  " value={draft.body} placeholder="one line here, or Save and edit body in prompt" onInput={v => set({ body: v })} onSubmit={nextFrom('f:body')} />
       ) : (
-        <Text key="f:body-info" {...LOOK.meta}>{`Body: ${lines} line(s); change it with "Edit body in prompt"`}</Text>
+        <Box key="f:body-box" flexDirection="column">
+          <Text key="f:body-info" {...LOOK.meta}>{`Body (${lines} ${lines === 1 ? 'line' : 'lines'})${fromDraft ? '' : ', change it with "Edit body in prompt"'}:`}</Text>
+          {draft.body.split('\n').filter(l => l.trim() !== '').slice(0, 2).map((line, i) => <Text key={`f:bl${i}`} {...LOOK.meta} wrap="truncate-end">{`  ${line || ' '}`}</Text>)}
+        </Box>
       )}
+      {placeholdersOf(draft.body).length > 0 ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{`Contains placeholders: ${placeholdersOf(draft.body).map(p => p.name).join(', ')}`}</Text> : null}
       <Box key="selects" flexDirection="row" columnGap={2} flexWrap="wrap">
         <Button plain key="f:mode" onPress={() => set({ mode: draft.mode === 'fill' ? 'submit' : 'fill' })}>{`[ Mode: ${draft.mode} ]`}</Button>
         {op !== 'edit' && library?.roots.project ? (
@@ -608,7 +654,7 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
       {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
       <Box key="acts" flexDirection="row" columnGap={2} flexWrap="wrap" marginTop={1}>
         <Button plain key="save" variant="primary" onPress={save(false)}>[ Save ]</Button>
-        <Button plain key="save-edit" onPress={save(true)}>[ Save and edit body in prompt ]</Button>
+        {fromDraft ? null : <Button plain key="save-edit" onPress={save(true)}>[ Save and edit body in prompt ]</Button>}
         <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
       </Box>
     </Box>
@@ -645,60 +691,63 @@ async function renderDelete($: EngineInterface, e: PaneEvent, path: string) {
   )
 }
 
+async function runCommand($: EngineInterface, args: string): Promise<{ text?: string }> {
+  const [verb = '', ...rest] = args.split(/\s+/)
+  switch (verb.toLowerCase()) {
+    case 'reload': {
+      const library = await reload($)
+      const skipped = library.errors.length > 0 ? `, ${library.errors.length} skipped (see /sn doctor)` : ''
+      return { text: `snippets: ${library.snippets.length} snippet(s) loaded${skipped}` }
+    }
+    case 'list': {
+      const library = await getLibrary($)
+      const rows = (library?.snippets ?? []).map(s => `${s.slug} - ${s.title}${s.source === 'project' ? ' [project]' : ''}`)
+      return { text: rows.length > 0 ? rows.join('\n') : 'snippets: no snippets yet. /sn new creates one.' }
+    }
+    case 'doctor': {
+      const library = await getLibrary($)
+      const lines = [
+        `global dir: ${library?.roots.global ?? '?'}`,
+        `project dir: ${library?.roots.project ?? '(none)'}`,
+        `snippets: ${library?.snippets.length ?? 0}`,
+        ...(library?.errors ?? []).map(err => `skipped ${err.path}: ${err.reason}`),
+        ...(library?.duplicates ?? []).map(d => `duplicate slug ${d}`),
+      ]
+      if ((library?.errors.length ?? 0) === 0 && (library?.duplicates.length ?? 0) === 0) lines.push('no problems found')
+      return { text: lines.join('\n') }
+    }
+    case 'help':
+      return { text: HELP }
+    case 'cancel': {
+      const { value: editing } = await $.state.get(bodyEditRef)
+      await endBodyEdit($)
+      return { text: editing ? `snippets: stopped editing "${editing.title}"; the prompt text is left as is` : 'snippets: nothing was being edited' }
+    }
+    case 'new': {
+      const opened = await openPicker($, { screen: 'list' }, '')
+      await startForm($, 'new', null, { slug: rest[0] })
+      return opened
+    }
+    default:
+      await $.state.set(heldRef, null)
+      return openPicker($, { screen: 'list' }, args)
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.state.set(pendingCursorRef, null)
     await $.state.set(bodyEditRef, null)
     await $.state.set(heldRef, null)
-    await $.command.register({ name: 'sn', description: 'Snippets: pick, fill and manage saved prompts', argumentHint: '[query | new | cancel | reload | list | doctor | help]' })
+    await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | new | cancel | reload | list | doctor | help]' })
+    await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | new | cancel | reload | list | doctor | help]' })
     const library = await reload($)
     if (library.errors.length > 0) $.ui.toast(`snippets: ${library.errors.length} snippet file(s) skipped, run /sn doctor`)
     return next(e)
   })
 
-  on('command.run', { command: 'sn' }, async ($, e) => {
-    const args = e.args.trim()
-    const [verb = '', ...rest] = args.split(/\s+/)
-    switch (verb.toLowerCase()) {
-      case 'reload': {
-        const library = await reload($)
-        const skipped = library.errors.length > 0 ? `, ${library.errors.length} skipped (see /sn doctor)` : ''
-        return { text: `snippets: ${library.snippets.length} snippet(s) loaded${skipped}` }
-      }
-      case 'list': {
-        const library = await getLibrary($)
-        const rows = (library?.snippets ?? []).map(s => `${s.slug} - ${s.title}${s.source === 'project' ? ' [project]' : ''}`)
-        return { text: rows.length > 0 ? rows.join('\n') : 'snippets: no snippets yet. /sn new creates one.' }
-      }
-      case 'doctor': {
-        const library = await getLibrary($)
-        const lines = [
-          `global dir: ${library?.roots.global ?? '?'}`,
-          `project dir: ${library?.roots.project ?? '(none)'}`,
-          `snippets: ${library?.snippets.length ?? 0}`,
-          ...(library?.errors ?? []).map(err => `skipped ${err.path}: ${err.reason}`),
-          ...(library?.duplicates ?? []).map(d => `duplicate slug ${d}`),
-        ]
-        if ((library?.errors.length ?? 0) === 0 && (library?.duplicates.length ?? 0) === 0) lines.push('no problems found')
-        return { text: lines.join('\n') }
-      }
-      case 'help':
-        return { text: HELP }
-      case 'cancel': {
-        const { value: editing } = await $.state.get(bodyEditRef)
-        await endBodyEdit($)
-        return { text: editing ? `snippets: stopped editing "${editing.title}"; the prompt text is left as is` : 'snippets: nothing was being edited' }
-      }
-      case 'new': {
-        const opened = await openPicker($, { screen: 'list' }, '')
-        await startForm($, 'new', null, { slug: rest[0] })
-        return opened
-      }
-      default:
-        await $.state.set(heldRef, null)
-        return openPicker($, { screen: 'list' }, args)
-    }
-  })
+  on('command.run', { command: 'sn' }, async ($, e) => runCommand($, e.args.trim()))
+  on('command.run', { command: 'snippets' }, async ($, e) => runCommand($, e.args.trim()))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     if (e.surface === 'mobile') {
@@ -724,6 +773,11 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    const { value: holding } = await $.state.get(heldRef)
+    if (holding && e.origin.kind === 'composer' && !e.text.trimStart().startsWith('/')) {
+      $.ui.log('trigger: blocked a composer submit while a draft is held', { to: 'debug' })
+      return { drop: 'snippets: the picker is holding your draft; finish there, or press Esc in the picker to get the draft back. Nothing was sent.' }
+    }
     const { value: editing } = await $.state.get(bodyEditRef)
     if (!editing || e.origin.kind !== 'composer' || e.text.trimStart().startsWith('/')) return next(e)
     const s = (await getLibrary($))?.all.find(x => x.path === editing.path)
@@ -731,7 +785,7 @@ export const register: Register = on => {
       await endBodyEdit($)
       return { drop: `snippets: "${editing.title}" is gone (${editing.path}); your text was not sent. Run /sn reload, or press Enter again to send it.` }
     }
-    const r = await saveDraft($, 'edit', s.path, { ...draftFrom(s, 'edit', true), body: e.text })
+    const r = await saveDraft($, 'edit', s.path, { ...draftFrom(s, 'edit'), body: e.text })
     if (!r.ok) return { drop: `snippets: not saved: ${r.error}. Your text was not sent; /sn cancel stops editing.` }
     await endBodyEdit($)
     await $.prompt.fill({ text: '', mode: 'replace' })

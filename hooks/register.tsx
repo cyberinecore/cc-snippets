@@ -24,7 +24,8 @@ const PANE = 'snippets'
 const PANE_ROWS = 20
 const INLINE_BUDGET = 11
 const TRIGGER = ';;'
-const SLUG_OK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const SLUG_FIRST = /^[A-Za-z0-9]/
+const SLUG_BAD = /[^A-Za-z0-9._-]/
 const MAX_FILES = 2000
 const MAX_DEPTH = 6
 const USAGE_KEY = 'usage'
@@ -59,6 +60,16 @@ type ApplyOutcome =
   | { kind: 'filled'; text: string; caret: number; pendingCaret: number | null }
   | { kind: 'submitted' }
   | { kind: 'refused'; reason: string }
+
+function trimSlashes(path: string): string {
+  let out = path
+  while (out.length > 1 && out.endsWith('/')) out = out.slice(0, -1)
+  return out
+}
+
+function isSlug(value: string): boolean {
+  return SLUG_FIRST.test(value) && !SLUG_BAD.test(value)
+}
 
 async function turnPage($: EngineInterface, delta: number, pages: number): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -148,10 +159,10 @@ async function readSource($: EngineInterface, dir: string, source: SnippetSource
 async function snippetRoots($: EngineInterface): Promise<Library['roots']> {
   const home = (await $.env.get('HOME')) ?? ''
   const override = await $.env.get('CYBERINE_SNIPPETS_DIR')
-  const global = override && override.trim() ? override.trim().replace(/\/$/, '') : `${home}/.claude/snippets`
+  const global = override && override.trim() ? trimSlashes(override.trim()) : `${home}/.claude/snippets`
   const repo = await $.session.repo().catch(() => null)
   const root = repo?.root ?? (await $.session.root().catch(() => ''))
-  const project = root ? `${root.replace(/\/$/, '')}/.claude/snippets` : null
+  const project = root ? `${trimSlashes(root)}/.claude/snippets` : null
   return { global, project: project === global ? null : project }
 }
 
@@ -338,7 +349,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
     const title = draft.title.trim()
     const slug = draft.slug.trim() || shortSlug(title)
     if (!title) return { ok: false, error: 'Title is required' }
-    if (!SLUG_OK.test(slug)) return { ok: false, error: 'Slug: letters, digits, . _ - only, starting with a letter or digit' }
+    if (!isSlug(slug)) return { ok: false, error: 'Slug: letters, digits, . _ - only, starting with a letter or digit' }
     const tags = draft.tags.split(',').map(t => t.trim()).filter(Boolean)
     const original = originalPath ? await byPath($, originalPath) : undefined
     if (op !== 'new' && !original) return { ok: false, error: 'The original file is gone; run /sn reload' }
@@ -356,7 +367,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
     }
     const keepPath = isEdit && (slug === original.slug || slugFromPath(original.path) !== original.slug)
     const path = keepPath && original ? original.path : `${root}/${slug}.md`
-    const body = draft.body.replace(/\r\n/g, '\n').replace(/\s+$/, '')
+    const body = draft.body.replace(/\r\n/g, '\n').trimEnd()
     const text = serializeSnippet({ slug, title, desc: draft.desc.trim(), tags, mode: draft.mode, body }, slugFromPath(path))
     const check = parseSnippet(path, text, source)
     if (!check.ok) return { ok: false, error: check.error.reason }

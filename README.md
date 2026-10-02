@@ -17,6 +17,13 @@ Requires Claude Code 2.1.287 or newer. The plugin is a mod (function hooks), whi
 /plugin install cyberine-snippets@cyberine-snippets
 ```
 
+Or from a shell, outside a session:
+
+```
+claude plugin marketplace add cyberinecore/cc-snippets
+claude plugin install cyberine-snippets@cyberine-snippets
+```
+
 To try a local checkout for one session instead:
 
 ```

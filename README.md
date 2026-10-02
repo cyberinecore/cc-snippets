@@ -57,19 +57,45 @@ A file that fails to parse is skipped and listed by `/sn doctor`; it never stops
 
 ## Using the picker
 
-`/sn` opens the pane with the search field focused. Typing filters by title, slug, tags and description; the most-used snippets come first when the search is empty. Each result is one line: the title, its mode, its slug and `G` (global) or `P` (project). Below a divider the focused snippet's description and first body lines preview. Down or Tab moves from the search field straight to the results; Enter on a result applies it, and Enter in the search field applies the top hit. The bottom row holds Details (for the focused result), New and the Source and Tag filters (press to cycle). New snippets are saved to the global folder; the Save to button in the form switches to the project folder.
+### Find and use a snippet
 
-To insert a snippet into a prompt you are already writing, type `;;` where it should go. The plugin holds your draft, opens the picker, and puts the draft back with the snippet inserted at that spot (a `submit` snippet is inserted too, never sent). Esc puts the draft back unchanged. `/sn` itself starts from an empty prompt box, since typing the command replaces what the box held.
+`/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. With an empty search the most-used snippets come first. Each result is one line: the title, its mode, its slug and `G` (global) or `P` (project); below a divider the focused snippet previews.
 
-To save the prompt you are writing as a snippet, type `;;` in it and press Up once from the search field: "Save this draft as a snippet" opens the New form with the draft as the body, the title taken from its first sentence and the slug derived from the title. Save writes the file and puts your draft back in the prompt box, so you can still send it.
+Down or Tab moves from the search field to the results; Enter on a result applies it, and Enter in the search field applies the top hit. A `fill` snippet lands in the prompt box and the pane closes; a second Enter then sends it to Claude as with anything you type, so review it first. A `submit` snippet is sent at once.
 
-A `fill` snippet lands in the prompt box and the pane closes. A second Enter then sends it to Claude, as with anything you type, so review or edit it first if you need to.
+### Fill placeholders
 
-Details on a snippet shows the whole body and the management actions, each with a letter key: `a` apply the other way (fill instead of submit or back), `e` edit the body in the prompt box, `i` edit title, slug, description, tags and mode, `u` duplicate, `d` delete, `b` back.
+A snippet with `{{name}}` or `{{name:default}}` asks for the values first. Enter moves to the next field; the last Enter applies.
 
-Editing a body: the plugin puts the body into the prompt box and the status line says so. Change it there (multi-line works as usual), then press Enter: the text is saved to the snippet file instead of being sent to Claude. `/sn cancel`, or clearing the prompt box, stops editing without saving. Slash commands typed while editing still run.
+![The placeholder form](assets/screenshot-placeholder-form.png)
 
-Esc closes the pane on every screen.
+### Insert into the prompt you are writing
+
+Type `;;` where the snippet should go. The plugin holds your draft, opens the picker, and puts the draft back with the snippet inserted at that spot; a `submit` snippet is inserted too, never sent. Esc gives the draft back unchanged. `/snippets` itself starts from an empty prompt box, since typing a command replaces what the box held.
+
+![Typing ;; in a draft opens the picker and holds the draft](assets/screenshot-trigger-before.png)
+
+![The snippet lands where ;; was typed](assets/screenshot-trigger-after.png)
+
+### Save the prompt you are writing as a snippet
+
+Type `;;` in the draft, press Up once from the search field, and choose "Save this draft as a snippet". The form takes the title from the draft's first sentence and derives the slug from it; the body is the draft. Save writes the file and puts your draft back in the prompt box, so you can still send it.
+
+![Saving a draft as a snippet](assets/screenshot-save-draft.png)
+
+### Create and manage snippets
+
+New (or `/snippets new`) opens the form; the slug follows the title until you edit it. New snippets go to the global folder; the Save to button switches to the project folder.
+
+![Creating a snippet](assets/screenshot-new.png)
+
+Details shows the whole snippet and its actions, each with a letter key: `a` apply the other way (fill instead of submit or back), `e` edit the body in the prompt box, `i` edit title, slug, description, tags and mode, `u` duplicate, `d` delete, `b` back.
+
+![The details screen](assets/screenshot-details.png)
+
+Editing a body: the plugin puts the body into the prompt box and the status line says so. Change it there (multi-line works as usual), then press Enter: the text is saved to the snippet file instead of being sent to Claude. `/snippets cancel`, or clearing the prompt box, stops editing without saving. Slash commands typed while editing still run.
+
+Esc closes the pane on every screen. On a short terminal the list, pager and buttons keep their rows and the preview gives way.
 
 ## Commands
 

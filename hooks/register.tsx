@@ -43,6 +43,7 @@ const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
 const HOTKEY_ROWS = 9
 const DIRECT = '!'
+const FOLDER_RULE = 'Folder: names of letters, digits, . _ - separated by /, none starting with a dot; empty is the top level'
 const ALL_FILTER: Filter = { source: 'all', tag: '' }
 
 function nextSource(cur: Filter['source'], hasProject: boolean): Filter['source'] {
@@ -509,7 +510,7 @@ async function moveSnippet($: EngineInterface, path: string, target: MoveTarget)
     const s = await byPath($, path)
     if (!s) return { ok: false, error: 'The file is gone; run /sn reload' }
     const folder = cleanFolder(target.folder)
-    if (folder === null) return { ok: false, error: 'Folder: names of letters, digits, . _ - separated by /, none starting with a dot' }
+    if (folder === null) return { ok: false, error: FOLDER_RULE }
     const lib = await getLibrary($)
     const root = target.source === 'project' ? lib?.roots.project : lib?.roots.global
     if (!root) return { ok: false, error: 'No project folder in this session; choose global' }
@@ -741,7 +742,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
             </Box>
             {col.showMode ? <Text key={`mo:${s.path}`} {...LOOK.meta}>{s.mode.padEnd(6)}</Text> : null}
             <Text key={`sl:${s.path}`} {...LOOK.accent}>{fit(s.slug, col.slug).padStart(col.slug)}</Text>
-            <Text key={`b:${s.path}`} {...LOOK.badge}>{sourceLetter(s) + (s.pinned ? PIN_MARK : '')}</Text>
+            <Text key={`b:${s.path}`} {...LOOK.badge}>{sourceLetter(s) + (s.pinned ? PIN_MARK : ' ')}</Text>
           </Box>
         ))}
       </Box>
@@ -784,7 +785,7 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
   const root = s.source === 'project' ? lib?.roots.project : lib?.roots.global
   const startMove = () => {
     void (async () => {
-      await $.state.set(moveRef, { source: s.source, folder: root ? folderOf(root, s.path) : '' })
+      await $.state.set(moveRef, { source: s.source, folder: '' })
       await go($, { screen: 'move', path: s.path })
     })()
   }
@@ -983,7 +984,14 @@ async function renderMove($: EngineInterface, e: PaneEvent, path: string) {
   const folder = cleanFolder(target.folder)
   const name = s.path.slice(s.path.lastIndexOf('/') + 1)
   const preview = root && folder !== null ? joinPath(root, folder, name) : ''
-  const patch = (next: Partial<MoveTarget>) => { void $.state.set(moveRef, { ...target, ...next }) }
+  const sourceRoot = s.source === 'project' ? lib?.roots.project : lib?.roots.global
+  const here = sourceRoot ? folderOf(sourceRoot, s.path) : ''
+  const patch = (next: Partial<MoveTarget>) => {
+    void (async () => {
+      await $.state.set(formErrorRef, '')
+      await $.state.set(moveRef, { ...target, ...next })
+    })()
+  }
   const cancel = () => { void go($, { screen: 'detail', path }) }
   const submit = () => {
     void (async () => {
@@ -1001,11 +1009,10 @@ async function renderMove($: EngineInterface, e: PaneEvent, path: string) {
   return (
     <Box flexDirection="column">
       <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Move "' + s.title + '"'}</Text>
-      <Text key="from" {...LOOK.meta} wrap="truncate-start">{'From ' + s.path}</Text>
+      <Text key="from" {...LOOK.meta} wrap="truncate-start">{'From ' + s.path + (here ? '  (folder ' + here + ')' : '')}</Text>
       {lib?.roots.project ? <Button plain key="m:source" onPress={() => patch({ source: target.source === 'project' ? 'global' : 'project' })}>{toLabel}</Button> : null}
       <Input key="m:folder" label="Folder " autoFocus value={target.folder} placeholder="(top level), or a/b" submitLabel="move" onInput={(v: string) => patch({ folder: v })} onSubmit={submit} />
-      <Text key="to" {...LOOK.meta} wrap="truncate-start">{preview ? 'To ' + preview : 'Folder: letters, digits, . _ - separated by /'}</Text>
-      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
+      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : <Text key="to" {...LOOK.meta} wrap="truncate-start">{preview ? 'To ' + preview : FOLDER_RULE}</Text>}
       <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
         <Button plain key="m:save" variant="primary" onPress={submit}>[ Move ]</Button>
         <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
@@ -1076,12 +1083,12 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
       return { text: `snippets: ${library.snippets.length} snippet(s) loaded${skipped}` }
     }
     case 'list': {
-      const library = await getLibrary($)
+      const library = (await getLibrary($)) ?? (await reload($))
       const rows = (library?.snippets ?? []).map(s => s.slug + ' - ' + s.title + (s.source === 'project' ? ' [project]' : ''))
       return { text: rows.length > 0 ? rows.join('\n') : 'snippets: no snippets yet. /sn new creates one.' }
     }
     case 'doctor': {
-      const library = await getLibrary($)
+      const library = (await getLibrary($)) ?? (await reload($))
       const lines = [
         `global dir: ${library?.roots.global ?? '?'}`,
         `project dir: ${library?.roots.project ?? '(none)'}`,

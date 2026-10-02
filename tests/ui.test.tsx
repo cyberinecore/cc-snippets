@@ -148,7 +148,7 @@ describe('layout', () => {
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(70, 'dock') })
     const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
     expect(texts.some(t => t.trim() === 'multi-line')).toBe(true)
-    expect(texts).toContain('G')
+    expect(texts.some(t => t.trim() === 'G')).toBe(true)
     expect(texts.some(t => t.startsWith('fill'))).toBe(true)
     expect(texts).toContain('Before writing code:')
     await ui.unmount()
@@ -463,7 +463,23 @@ describe('v0.2 organize and speed', () => {
     await ui.input({ key: 'm:folder', text: '../out', kind: 'change' })
     await ui.press({ key: 'm:save' })
     expect(await texts(ui)).toMatch(/Folder: names of letters/)
+    await ui.input({ key: 'm:folder', text: 'ok', kind: 'change' })
+    expect(await texts(ui)).not.toMatch(/Folder: names of letters/)
     expect(w.files.has(`${ROOT}/multi-line.md`)).toBe(true)
+    await ui.unmount()
+  })
+
+  test('Move starts at the top level even from a subfolder', async ($, on) => {
+    const w = world(on)
+    await $.command.run(run('tests'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'move' })
+    expect((await ui.find({ key: 'm:folder' }))?.props.value).toBe('')
+    expect(await texts(ui)).toMatch(/folder sub/)
+    await ui.press({ key: 'm:save' })
+    expect(w.files.has(`${ROOT}/write-tests.md`)).toBe(true)
+    expect(w.files.has(`${ROOT}/sub/write-tests.md`)).toBe(false)
     await ui.unmount()
   })
 
@@ -593,7 +609,6 @@ describe('v0.2 organize and speed', () => {
 
   test('without CYBERINE_SNIPPETS_DIR or an XDG folder the global folder is ~/.claude/snippets', async ($, on) => {
     world(on, { env: { HOME: '/home/test' } })
-    await $.command.run(run('reload'))
     const r = await $.command.run(run('doctor'))
     expect(r.text).toMatch(/global dir: \/home\/test\/\.claude\/snippets/)
   })

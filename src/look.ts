@@ -1,4 +1,4 @@
-import type { Snippet, SnippetMode } from '../types'
+import type { FormOp, Snippet, SnippetMode } from '../types'
 
 export type Placement = 'dock' | 'inline'
 
@@ -87,3 +87,7 @@ export function otherMode(mode: SnippetMode): SnippetMode {
 export function modeLabel(mode: SnippetMode): string {
   return mode === 'fill' ? 'Fill prompt' : 'Submit prompt'
 }
+
+export const FORM_TITLE: Readonly<Record<FormOp, string>> = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' }
+
+export const FIELDS = ['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body'] as const

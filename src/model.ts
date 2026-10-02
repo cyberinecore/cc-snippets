@@ -216,3 +216,7 @@ export function applyDraftPatch(base: Draft, patch: Partial<Draft>, retitle: str
   const isDerived = base.slug === '' || base.slug === shortSlug(base.title)
   return { ...base, ...patch, title: retitle, slug: isDerived ? shortSlug(retitle) : base.slug }
 }
+
+export function valueOf(values: Readonly<Record<string, string>>, name: string): string {
+  return Object.hasOwn(values, name) ? (values[name] ?? '') : ''
+}

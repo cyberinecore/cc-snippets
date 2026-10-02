@@ -1,8 +1,8 @@
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, Library, LoadError, Snippet, SnippetMode, SnippetSource, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import { BULLET, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
-import { applyDraftPatch, isUnder, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
+import { BULLET, FIELDS, FORM_TITLE, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
+import { applyDraftPatch, isUnder, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
 import { placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 
@@ -214,7 +214,8 @@ async function restoreHeld($: EngineInterface, why: string): Promise<void> {
 
 async function focusFromTrigger($: EngineInterface): Promise<void> {
   const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
-  $.ui.log(`trigger: refocus open isPlaced=${String(r.isPlaced)}${r.isPlaced ? '' : ` reason=${r.reason}`}`, { to: 'debug' })
+  const refocusNote = 'trigger: refocus open isPlaced=' + String(r.isPlaced) + (r.isPlaced ? '' : ' reason=' + r.reason)
+  $.ui.log(refocusNote, { to: 'debug' })
   if (!r.isPlaced) {
     await $.ui.close({ id: PANE })
     await restoreHeld($, 'not placed')
@@ -508,7 +509,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
       <Box flexDirection="column" gap={1}>
         <Text key="empty" {...LOOK.heading}>No snippets yet</Text>
         {saveDraftButton}
-        <Text key="where" {...LOOK.meta} wrap="wrap">{`Add .md files under ${library?.roots.global ?? '~/.claude/snippets'}${hasProject ? ` or ${library?.roots.project}` : ''}, or create one here.`}</Text>
+        <Text key="where" {...LOOK.meta} wrap="wrap">{'Add .md files under ' + (library?.roots.global ?? '~/.claude/snippets') + (hasProject ? ' or ' + (library?.roots.project ?? '') : '') + ', or create one here.'}</Text>
         {errors > 0 ? <Text key="errs" {...LOOK.error}>{`${errors} file(s) skipped, run /sn doctor`}</Text> : null}
         <Button plain key="new-empty" variant="primary" autoFocus onPress={openNew}>[ New snippet ]</Button>
       </Box>
@@ -559,7 +560,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
         <Button plain key="new" onPress={openNew}>[ New ]</Button>
         <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
         {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
-        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{`${hits.length}/${all.length}${errors > 0 ? ` (${errors} skipped)` : ''}  Enter use  Tab move  Esc close`}</Text>
+        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + '  Enter use  Tab move  Esc close'}</Text>
       </Box>
     </Box>
   )
@@ -575,9 +576,9 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
     <Box flexDirection="column">
       <Text key="title" {...LOOK.title} wrap="wrap">{s.title}</Text>
       {s.desc ? <Text key="desc" {...LOOK.meta} wrap="wrap">{s.desc}</Text> : null}
-      <Text key="meta" {...LOOK.meta} wrap="truncate-end">{`${metaLine(s)}${s.tags.length ? ` | ${s.tags.join(', ')}` : ''}`}</Text>
+      <Text key="meta" {...LOOK.meta} wrap="truncate-end">{metaLine(s) + (s.tags.length ? ' | ' + s.tags.join(', ') : '')}</Text>
       <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text>
-      {names.length > 0 ? <Text key="vars" {...LOOK.meta} wrap="wrap">{`Placeholders: ${names.map(p => (p.default ? `${p.name}=${p.default}` : p.name)).join(', ')}`}</Text> : null}
+      {names.length > 0 ? <Text key="vars" {...LOOK.meta} wrap="wrap">{'Placeholders: ' + names.map(p => (p.default ? p.name + '=' + p.default : p.name)).join(', ')}</Text> : null}
       <Box key="body" flexDirection="column" marginY={1}>
         {s.body.split('\n').map((line, i) => <Text key={`b${i}`} wrap="wrap">{line || ' '}</Text>)}
       </Box>
@@ -602,6 +603,9 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
   const values = (await $.state.get(valuesRef)).value ?? {}
   if (!s) return gone($, e, 'This snippet')
   const names = placeholdersOf(s.body)
+  const applyLabel = modeLabel(mode).toLowerCase()
+  const backView: View = { screen: 'detail', path }
+  const goBack = () => { void go($, backView) }
   const apply = () => {
     void (async () => {
       const fresh = (await $.state.get(valuesRef)).value ?? {}
@@ -610,34 +614,21 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
   }
   const advance = (i: number) => () => {
     const next = names[i + 1]
-    if (next) void $.ui.focus({ requestId: PANE, key: `v:${next.name}` })
+    if (next) void $.ui.focus({ requestId: PANE, key: 'v:' + next.name })
     else apply()
   }
   return (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading} wrap="truncate-end">{`Fill in: ${s.title}`}</Text>
-      {names.map((p, i) => (
-        <Input
-          key={`v:${p.name}`}
-          label={`${p.name} `}
-          autoFocus={i === 0 ? true : undefined}
-          placeholder={p.default || p.name}
-          value={Object.hasOwn(values, p.name) ? (values[p.name] ?? '') : ''}
-          submitLabel={i === names.length - 1 ? modeLabel(mode).toLowerCase() : 'next'}
-          onInput={v => { void setValue($, p.name, v) }}
-          onSubmit={advance(i)}
-        />
-      ))}
+      <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Fill in: ' + s.title}</Text>
+      {names.map((p, i) => <Input key={'v:' + p.name} label={p.name + ' '} autoFocus={i === 0 ? true : undefined} placeholder={p.default || p.name} value={valueOf(values, p.name)} submitLabel={i === names.length - 1 ? applyLabel : 'next'} onInput={(v: string) => { void setValue($, p.name, v) }} onSubmit={advance(i)} />)}
       <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
-        <Button plain key="apply" variant="primary" onPress={apply}>{`[ ${modeLabel(mode)} ]`}</Button>
-        <Button plain key="back" role="dismiss" onPress={() => { void go($, { screen: 'detail', path }) }}>[ Back ]</Button>
+        <Button plain key="apply" variant="primary" onPress={apply}>{'[ ' + modeLabel(mode) + ' ]'}</Button>
+        <Button plain key="back" role="dismiss" onPress={goBack}>[ Back ]</Button>
       </Box>
     </Box>
   )
 }
 
-const FORM_TITLE = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' } as const
-const FIELDS = ['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body'] as const
 
 async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
   const op = view.op
@@ -760,7 +751,7 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
     }
     case 'list': {
       const library = await getLibrary($)
-      const rows = (library?.snippets ?? []).map(s => `${s.slug} - ${s.title}${s.source === 'project' ? ' [project]' : ''}`)
+      const rows = (library?.snippets ?? []).map(s => s.slug + ' - ' + s.title + (s.source === 'project' ? ' [project]' : ''))
       return { text: rows.length > 0 ? rows.join('\n') : 'snippets: no snippets yet. /sn new creates one.' }
     }
     case 'doctor': {

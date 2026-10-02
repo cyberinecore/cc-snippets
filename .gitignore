@@ -161,3 +161,9 @@ __pycache__/
 
 # Engine-generated plugin types
 .claude-plugin/types/
+
+# nf-ignore top-up (ai-core, 2026-10-02): 4 new pattern(s) from updated asset
+.claude/.credentials.json
+.codex/auth.json
+.codex/.env
+.opencode/auth.json

@@ -2,6 +2,14 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.1] - 2026-10-02
+
+- The list's tools row now sits right below the search field, above the results. Filtering with Source or Tag keeps the focus on that button, and a short inline pane cuts the end of the list instead of the tools.
+- On a result row, `o` opens its details and `d` deletes it; the Tag button cycles only the tags of the current source.
+- `/sn doctor` and `/sn list` work before the picker was opened in the session.
+- Move starts at the top level of the target folder and shows the snippet's current folder; one error line, cleared as you type.
+- Pinned rows keep the columns aligned.
+
 ## [0.2.0] - 2026-10-02
 
 - Move a snippet from Details (`m`): switch between the global and project folders and choose a subfolder. Nothing is overwritten; a slug that already exists in the target folder is refused.

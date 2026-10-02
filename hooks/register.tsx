@@ -29,7 +29,7 @@ const trashRef = { plugin: 'cyberine-snippets', key: 'trash' } as const
 const PANE = 'snippets'
 const PANE_ROWS = 20
 const INLINE_BUDGET = 11
-const TOOLS_ONE_ROW = 126
+const TOOLS_ONE_ROW = 100
 const TRIGGER = ';;'
 const SLUG_FIRST = /^[A-Za-z0-9]/
 const SLUG_BAD = /[^A-Za-z0-9._-]/
@@ -142,6 +142,13 @@ async function go($: EngineInterface, view: View): Promise<void> {
 function firstTrashKey(items: readonly TrashItem[]): string {
   const first = items[0]
   return first ? 't:' + first.path : 'trash-back'
+}
+
+async function backToRow($: EngineInterface, path: string): Promise<void> {
+  await go($, { screen: 'list' })
+  await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
+  const onRow = await $.ui.focus({ requestId: PANE, key: 'r:' + path }).catch(() => ({ deny: 'failed' }))
+  if (onRow.deny !== undefined) await $.ui.focus({ requestId: PANE, key: 'q' }).catch(() => undefined)
 }
 
 async function claimKeys($: EngineInterface, key: string | null): Promise<void> {
@@ -632,7 +639,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const matches = (q: string, f: Filter) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy })
   const hits = matches(query, filter)
   const toolsWrap = cols < TOOLS_ONE_ROW ? 1 : 0
-  const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap
+  const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap + 1
   const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : INLINE_BUDGET, extraRows)
   const size = layout.rows
   const pages = Math.max(1, Math.ceil(hits.length / size))
@@ -645,7 +652,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     : layout.previewLines === 1
       ? [plainLine(shortDesc(focusedHit))].filter(l => l.trim() !== '')
       : previewOf(focusedHit, layout.previewLines).filter(l => l.trim() !== '')
-  const tags = [...new Set(all.flatMap(s => s.tags))].sort()
+  const tags = [...new Set(all.filter(s => filter.source === 'all' || s.source === filter.source).flatMap(s => s.tags))].sort()
   const errors = library?.errors.length ?? 0
   const hasProject = Boolean(library?.roots.project)
 
@@ -725,6 +732,15 @@ async function renderList($: EngineInterface, e: PaneEvent) {
       {staleRow}
       {saveDraftButton}
       <Input key="q" label="Search " autoFocus placeholder="type to filter" value={query} submitLabel="use top hit" onInput={setQuery} onSubmit={submitSearch} />
+      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2}>
+        <Button plain key="new" onPress={openNew}>[ New ]</Button>
+        <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
+        <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
+        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
+        <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
+        {focusedHit ? <Button plain key="details" hotkey="o" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>Details</Button> : null}
+        {focusedHit ? <Button plain key="list-del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>Delete</Button> : null}
+      </Box>
       <Box key="results" flexDirection="column" marginTop={layout.hasMargins ? 1 : 0} paddingLeft={1}>
         {shown.length === 0 ? (
           <Box key="none" flexDirection="column">
@@ -760,16 +776,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
           {previewText.map((line, i) => <Text key={`p-l${i}`} wrap="truncate-end">{line}</Text>)}
         </Box>
       ) : null}
-      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={layout.hasMargins ? 1 : 0}>
-        {focusedHit ? <Button plain key="details" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>[ Details ]</Button> : null}
-        {focusedHit ? <Button plain key="list-del" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>[ Delete ]</Button> : null}
-        <Button plain key="new" onPress={openNew}>[ New ]</Button>
-        <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
-        <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
-        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
-        <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
-        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Enter use  Tab then 1-9 pick  Esc close'}</Text>
-      </Box>
+      <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete'}</Text>
     </Box>
   )
 }
@@ -779,7 +786,7 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
   const s = await byPath($, path)
   if (!s) return gone($, e, 'This snippet')
   const names = placeholdersOf(s.body)
-  const back = () => { void go($, { screen: 'list' }) }
+  const back = () => { void backToRow($, s.path) }
   const error = (await $.state.get(formErrorRef)).value ?? ''
   const lib = await getLibrary($)
   const root = s.source === 'project' ? lib?.roots.project : lib?.roots.global

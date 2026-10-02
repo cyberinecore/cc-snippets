@@ -136,7 +136,7 @@ describe('page size', () => {
     await $.command.run(run(''))
     const tiny = { ...paneProps(60, 'inline'), scroll: { offset: 0, bodyRows: 3 } }
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: tiny })
-    expect((await ui.findAll({ type: "Button" })).filter(b => (b.key ?? "").startsWith("r:"))).toHaveLength(4)
+    expect((await ui.findAll({ type: "Button" })).filter(b => (b.key ?? "").startsWith("r:"))).toHaveLength(3)
     await ui.unmount()
   })
 })

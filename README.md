@@ -6,7 +6,7 @@ A Claude Code plugin that keeps your saved prompts as plain Markdown files and p
 
 Requires Claude Code 2.1.287 or newer. The plugin is a mod (function hooks), which loads in the terminal and in the Desktop app's Code tab. The VS Code chat panel and `claude -p` run its commands but draw no pane, so use `/sn list` there.
 
-![The picker docked beside the transcript](assets/screenshot-picker-dock.png)
+![The picker docked beside the transcript: search, the tools row, numbered results and a preview](assets/screenshot-picker-dock.png)
 
 ![Typing "rev" narrows the list; the focused snippet previews below](assets/screenshot-picker-search.png)
 
@@ -68,9 +68,9 @@ A file that fails to parse is skipped and listed by `/sn doctor`; it never stops
 
 ### Find and use a snippet
 
-`/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. With an empty search the most-used snippets come first. Each result is one line: the title, its mode, its slug and `G` (global) or `P` (project); below a divider the focused snippet previews.
+`/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. With an empty search the most-used snippets come first. Each result is one line: the title, its mode, its slug and `G` (global) or `P` (project); below a divider the focused snippet previews, and the bottom line shows the counts and keys.
 
-Down or Tab moves from the search field to the results; Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus is on the results, `1` to `9` apply the first nine rows; while the search field has the focus, digits are typed into the search. The Sort button switches the order between most used and most recently used, and remembers the choice. Pinned snippets (a `*` after the source letter) come first.
+Below the search field sits the tools row (New, Reload, Source, Tag, Sort, Details, Delete), then the results. Down or Tab moves from the search field through the tools row to the results; Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus is past the search field, `1` to `9` apply the first nine rows; while the search field has the focus, digits are typed into the search. Details and Delete act on the focused result: on a result row, press `o` for its details or `d` to delete it, without moving the focus. The Tag button cycles only the tags of the snippets the Source filter shows. The Sort button switches the order between most used and most recently used, and remembers the choice. Pinned snippets (a `*` after the source letter) come first.
 
 When you know the slug, `/sn <slug>!` skips the picker: the snippet is applied at once, a snippet with placeholders opens its form, and an unknown slug opens the picker filtered. A `fill` snippet lands in the prompt box and the pane closes; a second Enter then sends it to Claude as with anything you type, so review it first. A `submit` snippet is sent at once.
 

@@ -18,7 +18,7 @@ It never reads your conversation transcript, Claude's memory, chat history or su
 ## What it writes locally, and for how long
 
 - Snippet files you create or edit from the picker, in the snippet folders above.
-- Deleted or renamed snippet files are moved with `mv` into a `.trash` folder inside their snippet folder; they stay there until you remove them.
+- Deleted or renamed snippet files are copied into a `.trash` folder inside their snippet folder, then the original is removed with `rm`; the copies stay there until you remove them.
 - A usage count per snippet slug in the plugin's own Claude Code store, used to put frequently used snippets first. It stays until you remove the plugin's store file.
 
 ## Children

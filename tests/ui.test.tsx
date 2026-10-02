@@ -44,16 +44,7 @@ function world(on: On, options: { isPlaced?: boolean } = {}): World {
     return { value: undefined }
   })
   on('process.run', async ($, e) => {
-    const [cmd, ...args] = e.argv
-    if (cmd === 'mv' && args[0] === '-n') {
-      const [, from = '', to = ''] = args
-      const f = w.files.get(from)
-      if (f && !w.files.has(to)) {
-        w.files.delete(from)
-        w.files.set(to, f)
-      }
-    }
-    if (cmd === 'rm') w.files.delete(args[args.length - 1] ?? '')
+    if (e.argv[0] === 'rm') w.files.delete(e.argv[e.argv.length - 1] ?? '')
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.repo', async () => ({ value: null }))

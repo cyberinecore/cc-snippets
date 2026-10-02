@@ -322,20 +322,22 @@ async function insideSnippetRoots($: EngineInterface, ...paths: string[]): Promi
   return paths.every(p => isUnder(lib?.roots.global, p) || isUnder(lib?.roots.project, p))
 }
 
-async function moveNoClobber($: EngineInterface, from: string, to: string): Promise<boolean> {
+async function moveToTrash($: EngineInterface, from: string, to: string): Promise<boolean> {
   if (!(await insideSnippetRoots($, from, to))) return false
-  await $.process.run(['mkdir', '-p', to.slice(0, to.lastIndexOf('/'))])
-  const r = await $.process.run(['mv', '-n', from, to])
-  return r.exitCode === 0 && !(await $.fs.exists(from)) && (await $.fs.exists(to))
+  if (await $.fs.exists(to)) return false
+  const text = await $.fs.read(from).catch(() => undefined)
+  if (typeof text !== 'string') return false
+  await $.fs.write(to, text)
+  if (!(await $.fs.exists(to))) return false
+  const r = await $.process.run(['rm', '-f', '--', from])
+  return r.exitCode === 0 && !(await $.fs.exists(from))
 }
 
 async function createExclusive($: EngineInterface, path: string, text: string): Promise<boolean> {
-  const tmp = `${path.slice(0, path.lastIndexOf('/'))}/.snippet-${stamp()}.tmp`
-  if (!(await insideSnippetRoots($, path, tmp))) return false
-  await $.fs.write(tmp, text)
-  const isMoved = await moveNoClobber($, tmp, path)
-  if (!isMoved) await $.process.run(['rm', '-f', '--', tmp])
-  return isMoved
+  if (!(await insideSnippetRoots($, path))) return false
+  if (await $.fs.exists(path)) return false
+  await $.fs.write(path, text)
+  return true
 }
 
 async function unchangedOnDisk($: EngineInterface, s: Snippet): Promise<boolean> {
@@ -380,7 +382,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
       return { ok: false, error: `${path} already exists` }
     }
     if (isEdit && path !== original.path) {
-      const isTrashed = await moveNoClobber($, original.path, `${root}/.trash/${original.slug}.${stamp()}.md`)
+      const isTrashed = await moveToTrash($, original.path, `${root}/.trash/${original.slug}.${stamp()}.md`)
       if (!isTrashed) $.ui.toast(`snippets: saved ${path}, but could not move away ${original.path}`)
     }
     await reload($)
@@ -397,7 +399,7 @@ async function deleteSnippet($: EngineInterface, path: string): Promise<string> 
   const lib = await getLibrary($)
   const root = s.source === 'project' ? lib?.roots.project : lib?.roots.global
   const base = root && s.path.startsWith(`${root}/`) ? root : s.path.slice(0, s.path.lastIndexOf('/'))
-  const isMoved = await moveNoClobber($, s.path, `${base}/.trash/${s.slug}.${stamp()}.md`)
+  const isMoved = await moveToTrash($, s.path, `${base}/.trash/${s.slug}.${stamp()}.md`)
   await reload($)
   return isMoved ? '' : `Could not move ${s.path} to the trash folder`
 }

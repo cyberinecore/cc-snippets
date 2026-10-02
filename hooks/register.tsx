@@ -660,7 +660,8 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
       if (fromDraft) {
         await closePicker($)
         await restoreHeld($, 'saved draft as snippet')
-        $.ui.toast(`snippets: saved as ${r.saved.slug} (${current.source}); your draft is back in the prompt`)
+        const savedNote = 'snippets: saved as ' + r.saved.slug + ' (' + current.source + '); your draft is back in the prompt'
+        $.ui.toast(savedNote)
         return
       }
       if (thenEditBody) {
@@ -671,6 +672,11 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
     })()
   }
   const lines = draft.body ? draft.body.split('\n').length : 0
+  const bodyInfo = 'Body (' + String(lines) + (lines === 1 ? ' line)' : ' lines)') + (fromDraft ? ':' : ', change it with Edit body in prompt:')
+  const varNames = placeholdersOf(draft.body).map(p => p.name)
+  const modeButton = '[ Mode: ' + draft.mode + ' ]'
+  const saveToButton = '[ Save to: ' + draft.source + ' ]'
+  const bodyLines = draft.body.split('\n').filter(l => l.trim() !== '').slice(0, 2)
   return (
     <Box flexDirection="column">
       <Text key="h" {...LOOK.heading}>{fromDraft ? 'Save draft as snippet' : FORM_TITLE[op]}</Text>
@@ -682,15 +688,15 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
         <Input key="f:body" label="Body  " value={draft.body} placeholder="one line here, or Save and edit body in prompt" onInput={v => set({ body: v })} onSubmit={nextFrom('f:body')} />
       ) : (
         <Box key="f:body-box" flexDirection="column">
-          <Text key="f:body-info" {...LOOK.meta}>{`Body (${lines} ${lines === 1 ? 'line' : 'lines'})${fromDraft ? '' : ', change it with "Edit body in prompt"'}:`}</Text>
-          {draft.body.split('\n').filter(l => l.trim() !== '').slice(0, 2).map((line, i) => <Text key={`f:bl${i}`} {...LOOK.meta} wrap="truncate-end">{`  ${line || ' '}`}</Text>)}
+          <Text key="f:body-info" {...LOOK.meta}>{bodyInfo}</Text>
+          {bodyLines.map((line, i) => <Text key={'f:bl' + String(i)} {...LOOK.meta} wrap="truncate-end">{'  ' + line}</Text>)}
         </Box>
       )}
-      {placeholdersOf(draft.body).length > 0 ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{`Contains placeholders: ${placeholdersOf(draft.body).map(p => p.name).join(', ')}`}</Text> : null}
+      {varNames.length > 0 ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{'Contains placeholders: ' + varNames.join(', ')}</Text> : null}
       <Box key="selects" flexDirection="row" columnGap={2} flexWrap="wrap">
-        <Button plain key="f:mode" onPress={() => set({ mode: draft.mode === 'fill' ? 'submit' : 'fill' })}>{`[ Mode: ${draft.mode} ]`}</Button>
+        <Button plain key="f:mode" onPress={() => set({ mode: draft.mode === 'fill' ? 'submit' : 'fill' })}>{modeButton}</Button>
         {op !== 'edit' && library?.roots.project ? (
-          <Button plain key="f:source" onPress={() => set({ source: draft.source === 'project' ? 'global' : 'project' })}>{`[ Save to: ${draft.source} ]`}</Button>
+          <Button plain key="f:source" onPress={() => set({ source: draft.source === 'project' ? 'global' : 'project' })}>{saveToButton}</Button>
         ) : null}
       </Box>
       {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}

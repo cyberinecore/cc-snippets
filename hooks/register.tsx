@@ -19,10 +19,13 @@ const formErrorRef = { plugin: 'cyberine-snippets', key: 'formError' } as const
 const pendingCursorRef = { plugin: 'cyberine-snippets', key: 'pendingCursor' } as const
 const bodyEditRef = { plugin: 'cyberine-snippets', key: 'bodyEdit' } as const
 const heldRef = { plugin: 'cyberine-snippets', key: 'held' } as const
+const staleRef = { plugin: 'cyberine-snippets', key: 'stale' } as const
+const noticeRef = { plugin: 'cyberine-snippets', key: 'notice' } as const
 
 const PANE = 'snippets'
 const PANE_ROWS = 20
 const INLINE_BUDGET = 11
+const TOOLS_ONE_ROW = 110
 const TRIGGER = ';;'
 const SLUG_FIRST = /^[A-Za-z0-9]/
 const SLUG_BAD = /[^A-Za-z0-9._-]/
@@ -117,6 +120,7 @@ async function go($: EngineInterface, view: View): Promise<void> {
   await $.state.set(formErrorRef, '')
   await $.state.set(viewRef, view)
   if (view.screen === 'fill' || view.screen === 'form') await claimKeys($, view.screen === 'form' ? 'f:title' : null)
+  if (view.screen === 'delete') await claimKeys($, 'cancel')
 }
 
 async function claimKeys($: EngineInterface, key: string | null): Promise<void> {
@@ -137,11 +141,19 @@ async function walk($: EngineInterface, dir: string, depth: number, out: Array<{
   }
 }
 
-async function readSource($: EngineInterface, dir: string, source: SnippetSource, errors: LoadError[]): Promise<Snippet[]> {
+async function listSource($: EngineInterface, dir: string): Promise<Array<{ path: string; mtimeMs: number }>> {
   if (!(await $.fs.exists(dir).catch(() => false))) return []
   const files: Array<{ path: string; mtimeMs: number }> = []
   await walk($, dir, 0, files)
   files.sort((a, b) => a.path.localeCompare(b.path))
+  return files
+}
+
+function fingerprintOf(files: ReadonlyArray<{ path: string; mtimeMs: number }>): string {
+  return files.map(f => f.path + '@' + String(f.mtimeMs)).join('\n')
+}
+
+async function readSource($: EngineInterface, files: ReadonlyArray<{ path: string; mtimeMs: number }>, source: SnippetSource, errors: LoadError[]): Promise<Snippet[]> {
   const snippets: Snippet[] = []
   for (const file of files) {
     const text = await $.fs.read(file.path).catch((err: unknown) => {
@@ -178,17 +190,32 @@ async function readUsage($: EngineInterface): Promise<Usage> {
 async function reload($: EngineInterface): Promise<Library> {
   const roots = await snippetRoots($)
   const errors: LoadError[] = []
-  const globals = await readSource($, roots.global, 'global', errors)
-  const projects = roots.project ? await readSource($, roots.project, 'project', errors) : []
+  const globalFiles = await listSource($, roots.global)
+  const projectFiles = roots.project ? await listSource($, roots.project) : []
+  const globals = await readSource($, globalFiles, 'global', errors)
+  const projects = await readSource($, projectFiles, 'project', errors)
   const { snippets, all, duplicates } = mergeSources(globals, projects)
-  const library: Library = { snippets, all, errors, duplicates, roots, loadedAt: Date.now() }
+  const fingerprint = fingerprintOf([...globalFiles, ...projectFiles])
+  const library: Library = { snippets, all, errors, duplicates, roots, loadedAt: Date.now(), fingerprint }
   await $.state.set(libraryRef, library)
+  await $.state.set(staleRef, false)
   await $.state.set(usageRef, await readUsage($))
   return library
 }
 
+async function isStale($: EngineInterface, library: Library): Promise<boolean> {
+  const roots = await snippetRoots($)
+  if (roots.global !== library.roots.global || roots.project !== library.roots.project) return true
+  const globalFiles = await listSource($, roots.global)
+  const projectFiles = roots.project ? await listSource($, roots.project) : []
+  return fingerprintOf([...globalFiles, ...projectFiles]) !== library.fingerprint
+}
+
 async function openPicker($: EngineInterface, view: View, query: string): Promise<{ text?: string }> {
-  if (!(await getLibrary($))) await reload($)
+  const loaded = await getLibrary($)
+  if (!loaded) await reload($)
+  else await $.state.set(staleRef, await isStale($, loaded))
+  await $.state.set(noticeRef, '')
   await $.state.set(queryRef, query)
   await $.state.set(filterRef, ALL_FILTER)
   await $.state.set(pageRef, 0)
@@ -430,7 +457,7 @@ async function renderPane($: EngineInterface, e: PaneEvent) {
     case 'form':
       return renderForm($, e, view)
     case 'delete':
-      return renderDelete($, e, view.path)
+      return renderDelete($, e, view.path, view.back)
     default:
       return renderList($, e)
   }
@@ -455,12 +482,16 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const page = (await $.state.get(pageRef)).value ?? 0
   const focused = (await $.state.get(focusedRef)).value ?? null
   const { value: held } = await $.state.get(heldRef)
+  const { value: stale } = await $.state.get(staleRef)
+  const notice = (await $.state.get(noticeRef)).value ?? ''
   const all = library?.snippets ?? []
   const placement = e.props.placement
   const cols = Math.max(20, e.props.bodyColumns - 1)
   const matches = (q: string, f: Filter) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage)
   const hits = matches(query, filter)
-  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : INLINE_BUDGET, Boolean(held && held.text.trim()))
+  const toolsWrap = cols < TOOLS_ONE_ROW ? 1 : 0
+  const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap
+  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : INLINE_BUDGET, extraRows)
   const size = layout.rows
   const pages = Math.max(1, Math.ceil(hits.length / size))
   const current = Math.min(page, pages - 1)
@@ -477,6 +508,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const hasProject = Boolean(library?.roots.project)
 
   const setQuery = (v: string) => {
+    void $.state.set(noticeRef, '')
     void $.state.set(queryRef, v)
     void $.state.set(pageRef, 0)
     void $.state.set(focusedRef, null)
@@ -498,6 +530,20 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     void $.state.set(focusedRef, null)
   }
   const openNew = () => { void startForm($, 'new', null) }
+  const reloadNow = () => {
+    void (async () => {
+      const lib = await reload($)
+      await $.state.set(focusedRef, null)
+      const skippedNote = lib.errors.length > 0 ? ', ' + String(lib.errors.length) + ' skipped' : ''
+      await $.state.set(noticeRef, 'reloaded ' + String(lib.snippets.length) + skippedNote)
+    })()
+  }
+  const staleRow = stale ? (
+    <Box key="stale" flexDirection="row" columnGap={2}>
+      <Text key="stale-t" {...LOOK.error} wrap="truncate-end">Snippet files changed on disk.</Text>
+      <Button plain key="stale-reload" onPress={reloadNow}>[ Reload ]</Button>
+    </Box>
+  ) : null
   const hasDraft = Boolean(held && held.text.trim())
   const saveDraftButton = hasDraft ? (
     <Box key="save-draft-row" flexDirection="column">
@@ -513,13 +559,19 @@ async function renderList($: EngineInterface, e: PaneEvent) {
         {saveDraftButton}
         <Text key="where" {...LOOK.meta} wrap="wrap">{'Add .md files under ' + (library?.roots.global ?? '~/.claude/snippets') + (hasProject ? ' or ' + (library?.roots.project ?? '') : '') + ', or create one here.'}</Text>
         {errors > 0 ? <Text key="errs" {...LOOK.error}>{`${errors} file(s) skipped, run /sn doctor`}</Text> : null}
-        <Button plain key="new-empty" variant="primary" autoFocus onPress={openNew}>[ New snippet ]</Button>
+        {notice ? <Text key="notice" {...LOOK.meta}>{notice}</Text> : null}
+        {staleRow}
+        <Box key="empty-acts" flexDirection="row" columnGap={2}>
+          <Button plain key="new-empty" variant="primary" autoFocus onPress={openNew}>[ New snippet ]</Button>
+          <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
+        </Box>
       </Box>
     )
   }
 
   return (
     <Box flexDirection="column" paddingRight={1}>
+      {staleRow}
       {saveDraftButton}
       <Input key="q" label="Search " autoFocus placeholder="type to filter" value={query} submitLabel="use top hit" onInput={setQuery} onSubmit={submitSearch} />
       <Box key="results" flexDirection="column" marginTop={layout.hasMargins ? 1 : 0} paddingLeft={1}>
@@ -559,10 +611,12 @@ async function renderList($: EngineInterface, e: PaneEvent) {
       ) : null}
       <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={layout.hasMargins ? 1 : 0}>
         {focusedHit ? <Button plain key="details" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>[ Details ]</Button> : null}
+        {focusedHit ? <Button plain key="list-del" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>[ Delete ]</Button> : null}
         <Button plain key="new" onPress={openNew}>[ New ]</Button>
+        <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
         <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
         {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
-        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + '  Enter use  Tab move  Esc close'}</Text>
+        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Enter use  Tab move  Esc close'}</Text>
       </Box>
     </Box>
   )
@@ -592,7 +646,7 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
         <Button plain key="edit-body" hotkey="e" onPress={() => { void editBodyInPrompt($, s) }}>Edit body in prompt</Button>
         <Button plain key="edit-info" hotkey="i" onPress={() => { void startForm($, 'edit', s.path) }}>Edit info</Button>
         <Button plain key="dup" hotkey="u" onPress={() => { void startForm($, 'duplicate', s.path) }}>Duplicate</Button>
-        <Button plain key="del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: s.path }) }}>Delete</Button>
+        <Button plain key="del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: s.path, back: 'detail' }) }}>Delete</Button>
         <Button plain key="back" hotkey="b" role="dismiss" onPress={back}>Back</Button>
       </Box>
     </Box>
@@ -713,11 +767,16 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
   )
 }
 
-async function renderDelete($: EngineInterface, e: PaneEvent, path: string) {
+async function renderDelete($: EngineInterface, e: PaneEvent, path: string, back: 'list' | 'detail') {
   const { Box, Text, Button } = $.ui.resolve(e)
   const s = await byPath($, path)
   const error = (await $.state.get(formErrorRef)).value ?? ''
   if (!s) return gone($, e, 'This snippet')
+  const keep = async () => {
+    if (back === 'detail') return go($, { screen: 'detail', path })
+    await go($, { screen: 'list' })
+    await claimKeys($, 'list-del')
+  }
   const remove = () => {
     void (async () => {
       const err = await deleteSnippet($, path)
@@ -736,8 +795,8 @@ async function renderDelete($: EngineInterface, e: PaneEvent, path: string) {
       <Text key="note" {...LOOK.meta} wrap="wrap">{`The file moves to the .trash folder of its snippet root.${s.source === 'project' ? ' A global snippet with the same slug, if any, shows again.' : ''}`}</Text>
       {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
       <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
-        <Button plain key="cancel" autoFocus hotkey="c" role="dismiss" onPress={() => { void go($, { screen: 'detail', path }) }}>Cancel</Button>
-        <Button plain key="confirm" hotkey="y" onPress={remove}>Delete file</Button>
+        <Button plain key="cancel" autoFocus hotkey="n" role="dismiss" onPress={() => { void keep() }}>No</Button>
+        <Button plain key="confirm" hotkey="y" onPress={remove}>Yes, delete</Button>
       </Box>
     </Box>
   )

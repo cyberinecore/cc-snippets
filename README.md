@@ -91,6 +91,12 @@ New (or `/snippets new`) opens the form; the slug follows the title until you ed
 
 Details shows the whole snippet and its actions, each with a letter key: `a` apply the other way (fill instead of submit or back), `e` edit the body in the prompt box, `i` edit title, slug, description, tags and mode, `u` duplicate, `d` delete, `b` back.
 
+Delete, from Details (`d`) or from the Delete button under the list for the focused snippet, asks first: `y` deletes, `n` keeps it. The file moves to the `.trash` folder of its snippet folder, so a mistake can be copied back by hand.
+
+### Reload after editing files outside Claude
+
+The picker keeps the snippets it loaded. When you open it, it compares the file names and modification times in the snippet folders with what it loaded, without reading the files, and if anything was added, changed or removed it says "Snippet files changed on disk" with a Reload button. The Reload button under the list and `/sn reload` re-read the folders at any time.
+
 ![The details screen](assets/screenshot-details.png)
 
 Editing a body: the plugin puts the body into the prompt box and the status line says so. Change it there (multi-line works as usual), then press Enter: the text is saved to the snippet file instead of being sent to Claude. `/snippets cancel`, or clearing the prompt box, stops editing without saving. Slash commands typed while editing still run.
@@ -130,7 +136,7 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 
 - `/sn` does nothing or is unknown: run `/plugin` and check that the plugin's mod is active. The debug log line "hooks modules are turned off for installed plugins in this process: the rollout switch served off" means Anthropic has turned installed mods off remotely for that launch; built-in mods still load and there is nothing to fix locally. Restart Claude Code later.
 - A snippet is missing: run `/sn doctor`, fix the file, then `/sn reload`.
-- "changed on disk since it was loaded": another editor changed the file; run `/sn reload` and repeat the edit.
+- "changed on disk since it was loaded": another editor changed the file; press Reload in the picker (or run `/sn reload`) and repeat the edit.
 - Text did not land in the prompt: the box refuses fills while another dialog holds the keys; close it and pick again.
 
 ## Develop

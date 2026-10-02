@@ -22,10 +22,10 @@ export type Layout = { rows: number; previewLines: number; showDesc: boolean; ha
 const LIST_CAP = { dock: 14, inline: 4 } as const
 const MIN_LIST = 3
 
-export function layoutFor(placement: Placement, budget: number, hasDraftRow: boolean): Layout {
+export function layoutFor(placement: Placement, budget: number, extraRows: number): Layout {
   const isRoomy = placement === 'dock' && budget >= 20
   const hasMargins = isRoomy
-  const fixed = 1 + (hasDraftRow ? 2 : 0) + 1 + 2 + (hasMargins ? 2 : 0)
+  const fixed = 1 + extraRows + 1 + 2 + (hasMargins ? 2 : 0)
   const avail = Math.max(1, budget - fixed)
   const cap = LIST_CAP[placement]
   const wantPreview = placement === 'dock' ? (isRoomy ? 4 : 2) : 1

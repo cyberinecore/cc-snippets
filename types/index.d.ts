@@ -27,6 +27,7 @@ export type Library = {
   duplicates: string[]
   roots: { global: string; project: string | null }
   loadedAt: number
+  fingerprint: string
 }
 
 export type View =
@@ -34,7 +35,7 @@ export type View =
   | { screen: 'detail'; path: string }
   | { screen: 'fill'; path: string; mode: SnippetMode }
   | { screen: 'form'; op: FormOp; path: string | null; fromDraft?: boolean }
-  | { screen: 'delete'; path: string }
+  | { screen: 'delete'; path: string; back: 'list' | 'detail' }
 
 export type FormOp = 'new' | 'edit' | 'duplicate'
 
@@ -70,6 +71,8 @@ declare module 'claude-code' {
       pendingCursor: PendingCursor | null
       bodyEdit: BodyEdit | null
       held: HeldDraft | null
+      stale: boolean
+      notice: string
     }
   }
 }

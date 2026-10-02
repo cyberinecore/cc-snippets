@@ -2,6 +2,12 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.1.2] - 2026-10-02
+
+- Opening the picker after snippet files were added, changed or removed outside Claude shows "Snippet files changed on disk" with a Reload button, instead of silently showing the old list.
+- A Reload button under the list re-reads the snippet folders; `/sn reload` still works.
+- A Delete button under the list deletes the focused snippet without opening Details. Delete asks Yes (`y`) or No (`n`) from both places; No returns to where you came from.
+
 ## [0.1.1] - 2026-10-02
 
 - Save the prompt you are writing as a snippet: type `;;`, press Up from the search field, and "Save this draft as a snippet" opens the New form with the draft as the body and a title from its first sentence. Saving puts the draft back in the prompt box.

@@ -13,6 +13,8 @@ All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-
 - `/sn doctor` and `/sn list` work before the picker was opened in the session.
 - Move starts at the top level of the target folder and shows the snippet's current folder; one error line, cleared as you type.
 - Pinned rows keep the columns aligned.
+- Back from Details returns the focus to the row that was opened, instead of leaving nothing focused.
+- The counts line starts with `Esc close`, so it stays readable when cut.
 
 ## [0.2.0] - 2026-10-02
 

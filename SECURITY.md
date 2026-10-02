@@ -8,6 +8,6 @@ Report privately through GitHub's "Report a vulnerability" button on https://git
 
 ## Scope
 
-In scope: a snippet file or slug that makes the plugin write, move or delete a path outside `~/.claude/snippets` (or the configured folder) and `<repo>/.claude/snippets`; a save that overwrites a file other than the one you chose; a prompt submitted without your action; and any read of the conversation transcript.
+In scope: a snippet file, slug or folder name that makes the plugin write, move, restore or delete a path outside `~/.claude/snippets` (or the configured folder) and `<repo>/.claude/snippets`; a save that overwrites a file other than the one you chose; a prompt submitted without your action; and any read of the conversation transcript.
 
 Out of scope: the content of your own snippets, and Anthropic turning installed mods off remotely.

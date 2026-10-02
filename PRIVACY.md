@@ -10,14 +10,14 @@ Nothing. The plugin has no telemetry, makes no network requests, and sends no da
 
 - Markdown snippet files under `~/.claude/snippets` (or the folder named by the optional `CYBERINE_SNIPPETS_DIR` environment variable) and under `.claude/snippets` in the repository the session runs in, including their `.trash` folders when you open the trash.
 - The `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables, only to find the global snippet folder.
-- The text of the prompt box draft (`$.prompt.read`), only while you apply a snippet (to insert it at your caret) or save an edited snippet body.
+- The text of the prompt box draft, only to insert a snippet at your caret, to hold the draft while the picker opened with `;;` is up, to save the draft as a snippet, or to save an edited snippet body. The draft goes back into the prompt box or into that snippet file, nowhere else.
 - The keys you type into the prompt box, to notice the `;;` trigger and, for the first keystroke after a fill that placed a `{{cursor}}` mark, to land that keystroke at the mark. Keys are not stored.
 
 It never reads your conversation transcript, Claude's memory, chat history or summaries.
 
 ## What it writes locally, and for how long
 
-- Snippet files you create or edit from the picker, in the snippet folders above.
+- Snippet files you create, edit or pin from the picker, in the snippet folders above.
 - A snippet you move or restore is copied to its new place and the original is removed with `rm`.
 - Deleted or renamed snippet files are copied into a `.trash` folder inside their snippet folder, then the original is removed with `rm`; the copies stay there until you remove them.
 - In the plugin's own Claude Code store: a usage count and the time of last use per snippet slug (to order the list), your choice of sort order, and the placeholder values you last typed for each snippet (to prefill its form next time). Placeholder values are whatever you typed, so do not put secrets into placeholders. All of it stays until you remove the plugin's store file.

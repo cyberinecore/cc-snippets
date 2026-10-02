@@ -1,4 +1,4 @@
 {
-  "description": "Snippet picker mod: the /sn command, its pane, and the prompt hooks that place the caret and save edited snippet bodies",
+  "description": "Snippet picker mod: the /snippets and /sn commands, their pane, and the prompt hooks that place the caret and save edited snippet bodies",
   "modules": ["./register.tsx"]
 }

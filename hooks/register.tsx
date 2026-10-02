@@ -636,7 +636,7 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
   )
 }
 
-const FORM_TITLE: Record<FormOp, string> = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' }
+const FORM_TITLE = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' } as const
 const FIELDS = ['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body'] as const
 
 async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {

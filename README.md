@@ -6,7 +6,7 @@ A Claude Code plugin that keeps your saved prompts as plain Markdown files and p
 
 Requires Claude Code 2.1.287 or newer. The plugin is a mod (function hooks), which loads in the terminal and in the Desktop app's Code tab. The VS Code chat panel and `claude -p` run its commands but draw no pane, so use `/sn list` there.
 
-![The picker docked beside the transcript: search, the tools row, numbered results and a preview](assets/screenshot-picker-dock.png)
+![The picker docked beside the transcript: search, numbered results, a preview and the tools row](assets/screenshot-picker-dock.png)
 
 ![Typing "rev" narrows the list; the focused snippet previews below](assets/screenshot-picker-search.png)
 
@@ -70,15 +70,15 @@ A file that fails to parse is skipped and listed by `/sn doctor`; it never stops
 
 `/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. Among equal matches, and for an empty search, pinned snippets come first, then the most used ones (or the most recently used, see Sort below).
 
-Below the search field sits the tools row: New, Reload, Source (all, global, project), Tag (the tags of the snippets the Source filter shows), Sort (most used or most recently used; the choice is remembered), and Details and Delete for the focused result. Then come the results, one line each: the title, its mode, its slug, and `G` (global) or `P` (project), with `*` when pinned. Below a divider the focused snippet previews, and the bottom line shows the counts and keys.
+Below the search field come the results, one line each: the title, its mode, its slug, and `G` (global) or `P` (project), with `*` when pinned. Below a divider the focused snippet previews. Then sits the tools row: New, Reload, Source (all, global, project), Tag (the tags of the snippets the Source filter shows), Sort (most used or most recently used; the choice is remembered), and Details and Delete for the focused result. The bottom line shows the counts and keys.
 
-Down or Tab moves from the search field through the tools row to the results. Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus has left the search field, `1` to `9` apply the first nine rows, `o` opens the details of the focused result and `d` deletes it; while the search field has the focus, these keys are typed into the search.
+Down or Tab moves from the search field to the results, so the most used snippet is one key away, and on through the tools row. Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus has left the search field, `1` to `9` apply the first nine rows, `o` opens the details of the focused result and `d` deletes it; while the search field has the focus, these keys are typed into the search.
 
 A `fill` snippet lands in the prompt box and the pane closes; a second Enter then sends it to Claude as with anything you type, so review it first. A `submit` snippet is sent at once.
 
 When you know the slug, `/sn <slug>!` skips the picker: the snippet is applied at once, a snippet with placeholders opens its form, and an unknown slug opens the picker filtered by that text.
 
-Esc closes the pane on every screen. When the pane is short, the preview is dropped first; when Claude Code gives the pane fewer rows than it asks for, the bottom is cut (the end of the list, the preview and the counts line), while the search field and the tools row stay.
+Esc closes the pane on every screen. When the pane is short, the preview is dropped first; when Claude Code gives the pane fewer rows than it asks for, the bottom is cut (the counts line, the tools row, then the preview and the end of the list), while the search field stays.
 
 ### Fill placeholders
 

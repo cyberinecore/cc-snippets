@@ -531,6 +531,18 @@ describe('v0.2 organize and speed', () => {
     await ui.unmount()
   })
 
+  test('the tools row comes after the results so Tab reaches the top hit first', async ($, on) => {
+    world(on)
+    await $.command.run(run(''))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    const keys = (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '')
+    const firstRow = keys.findIndex(k => k.startsWith('r:'))
+    expect(firstRow).toBeGreaterThanOrEqual(0)
+    expect(firstRow).toBeLessThan(keys.indexOf('new'))
+    expect(keys.indexOf('new')).toBeGreaterThan(keys.findLastIndex(k => k.startsWith('r:')))
+    await ui.unmount()
+  })
+
   test('Pin writes pin: true and puts the snippet first', async ($, on) => {
     const w = world(on)
     await $.command.run(run('tests'))

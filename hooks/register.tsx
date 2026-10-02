@@ -724,15 +724,6 @@ async function renderList($: EngineInterface, e: PaneEvent) {
       {staleRow}
       {saveDraftButton}
       <Input key="q" label="Search " autoFocus placeholder="type to filter" value={query} submitLabel="use top hit" onInput={setQuery} onSubmit={submitSearch} />
-      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2}>
-        <Button plain key="new" onPress={openNew}>[ New ]</Button>
-        <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
-        <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
-        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
-        <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
-        {focusedHit ? <Button plain key="details" hotkey="o" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>Details</Button> : null}
-        {focusedHit ? <Button plain key="list-del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>Delete</Button> : null}
-      </Box>
       <Box key="results" flexDirection="column" marginTop={layout.hasMargins ? 1 : 0} paddingLeft={1}>
         {shown.length === 0 ? (
           <Box key="none" flexDirection="column">
@@ -768,6 +759,15 @@ async function renderList($: EngineInterface, e: PaneEvent) {
           {previewText.map((line, i) => <Text key={`p-l${i}`} wrap="truncate-end">{line}</Text>)}
         </Box>
       ) : null}
+      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={layout.hasMargins ? 1 : 0}>
+        <Button plain key="new" onPress={openNew}>[ New ]</Button>
+        <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
+        <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
+        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
+        <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
+        {focusedHit ? <Button plain key="details" hotkey="o" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>Details</Button> : null}
+        {focusedHit ? <Button plain key="list-del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>Delete</Button> : null}
+      </Box>
       <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete'}</Text>
     </Box>
   )

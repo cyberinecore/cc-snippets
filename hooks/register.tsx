@@ -199,19 +199,11 @@ async function readSource($: EngineInterface, files: ReadonlyArray<{ path: strin
 async function snippetRoots($: EngineInterface): Promise<Library['roots']> {
   const home = (await $.env.get('HOME')) ?? ''
   const override = await $.env.get('CYBERINE_SNIPPETS_DIR')
-  const global = override && override.trim() ? trimSlashes(override.trim()) : await defaultGlobal($, home)
+  const global = override && override.trim() ? trimSlashes(override.trim()) : `${home}/.claude/snippets`
   const repo = await $.session.repo().catch(() => null)
   const root = repo?.root ?? (await $.session.root().catch(() => ''))
   const project = root ? `${trimSlashes(root)}/.claude/snippets` : null
   return { global, project: project === global ? null : project }
-}
-
-async function defaultGlobal($: EngineInterface, home: string): Promise<string> {
-  const dataHome = await $.env.get('XDG_DATA_HOME')
-  const base = dataHome && dataHome.trim() ? trimSlashes(dataHome.trim()) : home + '/.local/share'
-  const xdg = base + '/cyberine-snippets'
-  if (await $.fs.exists(xdg).catch(() => false)) return xdg
-  return home + '/.claude/snippets'
 }
 
 async function readNumbers($: EngineInterface, key: string): Promise<Usage> {

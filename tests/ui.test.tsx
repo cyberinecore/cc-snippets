@@ -599,15 +599,7 @@ describe('v0.2 organize and speed', () => {
     await ui.unmount()
   })
 
-  test('without CYBERINE_SNIPPETS_DIR an existing XDG folder becomes the global folder', async ($, on) => {
-    const w = world(on, { env: { HOME: '/home/test', XDG_DATA_HOME: '/xdg' } })
-    w.files.set('/xdg/cyberine-snippets/hi.md', { text: '---\ntitle: Hi\n---\nhi\n', mtimeMs: 800 })
-    await $.command.run(run('reload'))
-    const r = await $.command.run(run('doctor'))
-    expect(r.text).toMatch(/global dir: \/xdg\/cyberine-snippets/)
-  })
-
-  test('without CYBERINE_SNIPPETS_DIR or an XDG folder the global folder is ~/.claude/snippets', async ($, on) => {
+  test('without CYBERINE_SNIPPETS_DIR the global folder is ~/.claude/snippets', async ($, on) => {
     world(on, { env: { HOME: '/home/test' } })
     const r = await $.command.run(run('doctor'))
     expect(r.text).toMatch(/global dir: \/home\/test\/\.claude\/snippets/)

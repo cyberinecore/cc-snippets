@@ -32,7 +32,7 @@ claude --plugin-dir /path/to/cc-snippets
 
 ## Snippet files
 
-- Global: `~/.claude/snippets/**/*.md`. Set `CYBERINE_SNIPPETS_DIR` to use another folder. Without it, an existing `$XDG_DATA_HOME/cyberine-snippets` folder (default `~/.local/share/cyberine-snippets`) is used instead of `~/.claude/snippets`; create that folder to opt in.
+- Global: `~/.claude/snippets/**/*.md`. Set `CYBERINE_SNIPPETS_DIR` to use another folder.
 - Project: `<repo root>/.claude/snippets/**/*.md`. A project snippet replaces a global one with the same slug.
 - Files and folders whose names start with a dot are ignored, which is where `.trash` lives.
 
@@ -138,7 +138,7 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 
 ## What it reads, writes, runs and sends
 
-- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, or an existing `$XDG_DATA_HOME/cyberine-snippets`, and `<repo root>/.claude/snippets`), and the files in their `.trash` folders when you open `/sn trash`. It reads the `HOME`, `CYBERINE_SNIPPETS_DIR` and `XDG_DATA_HOME` environment variables only to find the global folder. It reads no other file.
+- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, and `<repo root>/.claude/snippets`), and the files in their `.trash` folders when you open `/sn trash`. It reads the `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables only to find the global folder. It reads no other file.
 - What it puts in a prompt it submits (`prompt.submit`): only the text of a snippet you picked whose `mode` is `submit`, with the placeholder values you typed, after you chose it. It never adds the content of any other file, the conversation or your draft.
 - The prompt box (`prompt.read`, `prompt.fill`): it reads the draft only to insert a snippet at your caret, to hold the draft while the `;;` picker is open, and to save a draft or an edited body as a snippet file. The draft goes back into the prompt box or into that snippet file, nowhere else. While a body edit or a held draft is active, Enter in the prompt box saves or is held back instead of sending. It never reads the conversation transcript, Claude's memory or chat history.
 - Files it writes (`fs.write`): only snippet `.md` files inside the snippet folders above: a snippet you create, edit, pin, move or restore, and the copy of a deleted or renamed snippet in the `.trash` folder of its snippet folder. Every write and removal is checked to stay inside those folders; it never writes build, start-up, settings or instruction files.
@@ -159,7 +159,7 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 - A snippet is missing: run `/sn doctor`, fix the file, then `/sn reload`.
 - "changed on disk since it was loaded": another editor changed the file; press Reload in the picker (or run `/sn reload`) and repeat the edit.
 - Text did not land in the prompt: the box refuses fills while another dialog holds the keys; close it and pick again.
-- Claude cannot create a snippet for you ("is in another repository" or a similar block): a guard such as a cross-repository write hook stops Claude's own Write tool when the snippet folder sits inside another git repository, for example a `~/.claude` kept in git. The plugin's own saves are not affected. Write the text in the prompt box, type `;;`, press Up and choose "Save this draft as a snippet"; or move the global folder outside any repository with `CYBERINE_SNIPPETS_DIR` or `~/.local/share/cyberine-snippets`.
+- Claude cannot create a snippet for you ("is in another repository" or a similar block): a guard such as a cross-repository write hook stops Claude's own Write tool when the snippet folder sits inside another git repository, for example a `~/.claude` kept in git. The plugin's own saves are not affected. Write the text in the prompt box, type `;;`, press Up and choose "Save this draft as a snippet"; or point `CYBERINE_SNIPPETS_DIR` at a folder outside any repository, such as `~/.local/share/cyberine-snippets`.
 
 ## Develop
 

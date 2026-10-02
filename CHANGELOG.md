@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.2] - 2026-10-02
+
+- The global snippet folder no longer falls back to `$XDG_DATA_HOME/cyberine-snippets`; it is `CYBERINE_SNIPPETS_DIR` when set, else `~/.claude/snippets`, as in 0.1.x. The plugin reads no `XDG_DATA_HOME`.
+
 ## [0.2.1] - 2026-10-02
 
 - The list's tools row now sits right below the search field, above the results. Filtering with Source or Tag keeps the focus on that button, and a short inline pane cuts the end of the list instead of the tools.

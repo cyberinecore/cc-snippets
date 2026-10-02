@@ -8,8 +8,8 @@ Nothing. The plugin has no telemetry, makes no network requests, and sends no da
 
 ## What it reads locally
 
-- Markdown snippet files under `~/.claude/snippets` (or the folder named by the optional `CYBERINE_SNIPPETS_DIR` environment variable, or `cyberine-snippets` under `$XDG_DATA_HOME` when that folder exists) and under `.claude/snippets` in the repository the session runs in, including their `.trash` folders when you open the trash.
-- The `HOME`, `CYBERINE_SNIPPETS_DIR` and `XDG_DATA_HOME` environment variables, only to find the global snippet folder.
+- Markdown snippet files under `~/.claude/snippets` (or the folder named by the optional `CYBERINE_SNIPPETS_DIR` environment variable) and under `.claude/snippets` in the repository the session runs in, including their `.trash` folders when you open the trash.
+- The `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables, only to find the global snippet folder.
 - The text of the prompt box draft (`$.prompt.read`), only while you apply a snippet (to insert it at your caret) or save an edited snippet body.
 - The keys you type into the prompt box, to notice the `;;` trigger and, for the first keystroke after a fill that placed a `{{cursor}}` mark, to land that keystroke at the mark. Keys are not stored.
 

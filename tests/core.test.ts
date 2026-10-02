@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Snippet } from '../types'
-import { isUnder, mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft } from '../src/model'
-import { placeholdersOf, renderBody } from '../src/placeholders'
+import { cleanFolder, folderOf, isUnder, joinPath, mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
+import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 import { fit, plainLine, rowColumns } from '../src/look'
 import { insertAt, redirectEdit } from '../src/caret'
@@ -16,6 +16,7 @@ const snip = (over: Partial<Snippet>): Snippet => ({
   path: '/g/x.md',
   source: 'global',
   mtimeMs: 0,
+  pinned: false,
   ...over,
 })
 
@@ -244,5 +245,47 @@ describe('write guard', () => {
     expect(isUnder('/h/.claude/snippets', '/h/.claude/snippets-evil/a.md')).toBe(false)
     expect(isUnder('/h/.claude/snippets', '/h/.claude/snippets/../settings.json')).toBe(false)
     expect(isUnder(null, '/x/a.md')).toBe(false)
+  })
+})
+
+describe('v0.2 helpers', () => {
+  test('pin: true parses and serializes', async () => {
+    const r = parseSnippet('/g/a.md', '---\ntitle: A\npin: true\n---\nbody', 'global')
+    expect(r.ok && r.snippet.pinned).toBe(true)
+    expect(serializeSnippet({ slug: 'a', title: 'A', desc: '', tags: [], mode: 'fill', body: 'body', pinned: true }, 'a')).toBe('---\ntitle: A\npin: true\n---\nbody\n')
+  })
+
+  test('folder helpers keep paths inside the root', async () => {
+    expect(cleanFolder(' team/daily/ ')).toBe('team/daily')
+    expect(cleanFolder('')).toBe('')
+    expect(cleanFolder('../x')).toBeNull()
+    expect(cleanFolder('a/.hidden')).toBeNull()
+    expect(cleanFolder('a b')).toBeNull()
+    expect(folderOf('/r', '/r/a/b/x.md')).toBe('a/b')
+    expect(folderOf('/r/', '/r/x.md')).toBe('')
+    expect(joinPath('/r', '', 'x.md')).toBe('/r/x.md')
+    expect(joinPath('/r', 'a/b', 'x.md')).toBe('/r/a/b/x.md')
+  })
+
+  test('trashSlug strips the delete stamp and keeps dots in the slug', async () => {
+    expect(trashSlug('multi-line.2026-10-02T10-11-12-123Z.md')).toBe('multi-line')
+    expect(trashSlug('v1.2.notes.2026-10-02T10-11-12-123Z.md')).toBe('v1.2.notes')
+    expect(trashSlug('plain.md')).toBe('plain')
+  })
+
+  test('date and time are built in, never asked, and filled from the clock', async () => {
+    expect(placeholdersOf('{{date}} {{time}} {{who}}').map(p => p.name)).toEqual(['who'])
+    const clock = clockValues(new Date(2026, 0, 5, 7, 3))
+    expect(clock).toEqual({ date: '2026-01-05', time: '07:03' })
+    expect(renderBody('On {{date}} at {{time}} for {{who}}', { who: 'me' }, clock).text).toBe('On 2026-01-05 at 07:03 for me')
+  })
+
+  test('pinned snippets rank first after the search score, recent sort orders by last use', async () => {
+    const list = [snip({ slug: 'a', title: 'A' }), snip({ slug: 'b', title: 'B', pinned: true }), snip({ slug: 'c', title: 'C' })]
+    expect(rank(list, '').map(s => s.slug)).toEqual(['b', 'a', 'c'])
+    const usage = { a: 5, c: 1 }
+    const recent = { a: 10, c: 20 }
+    expect(rank(list, '', usage, { recent, by: 'used' }).map(s => s.slug)).toEqual(['b', 'a', 'c'])
+    expect(rank(list, '', usage, { recent, by: 'recent' }).map(s => s.slug)).toEqual(['b', 'c', 'a'])
   })
 })

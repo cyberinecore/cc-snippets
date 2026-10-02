@@ -131,6 +131,7 @@ export function parseSnippet(path: string, text: string, source: SnippetSource, 
       path,
       source,
       mtimeMs,
+      pinned: asString(fm.pin)?.trim().toLowerCase() === 'true',
     },
   }
 }
@@ -145,12 +146,13 @@ function tagScalar(v: string): string {
   return /^[\w./-]+$/.test(v) ? v : JSON.stringify(v)
 }
 
-export function serializeSnippet(s: Pick<Snippet, 'slug' | 'title' | 'desc' | 'tags' | 'mode' | 'body'>, fileSlug: string): string {
+export function serializeSnippet(s: Pick<Snippet, 'slug' | 'title' | 'desc' | 'tags' | 'mode' | 'body'> & { pinned?: boolean }, fileSlug: string): string {
   const lines = ['---', `title: ${scalar(s.title)}`]
   if (s.slug !== fileSlug) lines.push(`slug: ${scalar(s.slug)}`)
   if (s.desc) lines.push(`desc: ${scalar(s.desc)}`)
   if (s.tags.length > 0) lines.push(`tags: [${s.tags.map(tagScalar).join(', ')}]`)
   if (s.mode !== 'fill') lines.push(`mode: ${s.mode}`)
+  if (s.pinned) lines.push('pin: true')
   lines.push('---', '')
   return `${lines.join('\n')}${s.body}\n`
 }
@@ -219,4 +221,29 @@ export function applyDraftPatch(base: Draft, patch: Partial<Draft>, retitle: str
 
 export function valueOf(values: Readonly<Record<string, string>>, name: string): string {
   return Object.hasOwn(values, name) ? (values[name] ?? '') : ''
+}
+
+const FOLDER_PART = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+export function cleanFolder(folder: string): string | null {
+  const parts = folder.trim().split('/').filter(p => p !== '')
+  return parts.every(p => FOLDER_PART.test(p)) ? parts.join('/') : null
+}
+
+export function folderOf(root: string, path: string): string {
+  const base = root.replace(/\/+$/, '')
+  if (!path.startsWith(`${base}/`)) return ''
+  const rel = path.slice(base.length + 1)
+  const cut = rel.lastIndexOf('/')
+  return cut < 0 ? '' : rel.slice(0, cut)
+}
+
+export function joinPath(root: string, folder: string, name: string): string {
+  return [root.replace(/\/+$/, ''), folder, name].filter(p => p !== '').join('/')
+}
+
+const TRASH_STAMP = /\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/
+
+export function trashSlug(name: string): string {
+  return name.replace(/\.md$/i, '').replace(TRASH_STAMP, '')
 }

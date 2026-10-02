@@ -1,9 +1,9 @@
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
-import type { Draft, Filter, FormOp, Library, LoadError, Snippet, SnippetMode, SnippetSource, Usage, View } from '../types'
+import type { Draft, Filter, FormOp, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import { BULLET, FIELDS, FORM_TITLE, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
-import { applyDraftPatch, isUnder, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
-import { placeholdersOf, renderBody } from '../src/placeholders'
+import { BULLET, FIELDS, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
+import { applyDraftPatch, cleanFolder, folderOf, isUnder, joinPath, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
+import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 
 const libraryRef = { plugin: 'cyberine-snippets', key: 'library' } as const
@@ -21,17 +21,28 @@ const bodyEditRef = { plugin: 'cyberine-snippets', key: 'bodyEdit' } as const
 const heldRef = { plugin: 'cyberine-snippets', key: 'held' } as const
 const staleRef = { plugin: 'cyberine-snippets', key: 'stale' } as const
 const noticeRef = { plugin: 'cyberine-snippets', key: 'notice' } as const
+const recentRef = { plugin: 'cyberine-snippets', key: 'recent' } as const
+const sortRef = { plugin: 'cyberine-snippets', key: 'sort' } as const
+const moveRef = { plugin: 'cyberine-snippets', key: 'move' } as const
+const trashRef = { plugin: 'cyberine-snippets', key: 'trash' } as const
 
 const PANE = 'snippets'
 const PANE_ROWS = 20
 const INLINE_BUDGET = 11
-const TOOLS_ONE_ROW = 110
+const TOOLS_ONE_ROW = 126
 const TRIGGER = ';;'
 const SLUG_FIRST = /^[A-Za-z0-9]/
 const SLUG_BAD = /[^A-Za-z0-9._-]/
 const MAX_FILES = 2000
 const MAX_DEPTH = 6
 const USAGE_KEY = 'usage'
+const RECENT_KEY = 'recent'
+const SORT_KEY = 'sort'
+const VALUES_KEY = 'lastValues'
+const TRASH_DIR = '.trash'
+const TRASH_SHOWN = 15
+const HOTKEY_ROWS = 9
+const DIRECT = '!'
 const ALL_FILTER: Filter = { source: 'all', tag: '' }
 
 function nextSource(cur: Filter['source'], hasProject: boolean): Filter['source'] {
@@ -46,7 +57,9 @@ function nextTag(cur: string, tags: readonly string[]): string {
 
 const HELP = [
   '/sn [query]   open the picker, optionally pre-filtered',
+  '/sn <slug>!   apply that snippet at once',
   '/sn new       create a snippet',
+  '/sn trash     restore a deleted snippet',
   '/sn cancel    stop editing a snippet body in the prompt',
   '/sn reload    re-read the snippet folders',
   '/sn list      print slug - title per snippet',
@@ -121,6 +134,13 @@ async function go($: EngineInterface, view: View): Promise<void> {
   await $.state.set(viewRef, view)
   if (view.screen === 'fill' || view.screen === 'form') await claimKeys($, view.screen === 'form' ? 'f:title' : null)
   if (view.screen === 'delete') await claimKeys($, 'cancel')
+  if (view.screen === 'move') await claimKeys($, 'm:folder')
+  if (view.screen === 'trash') await claimKeys($, firstTrashKey((await $.state.get(trashRef)).value ?? []))
+}
+
+function firstTrashKey(items: readonly TrashItem[]): string {
+  const first = items[0]
+  return first ? 't:' + first.path : 'trash-back'
 }
 
 async function claimKeys($: EngineInterface, key: string | null): Promise<void> {
@@ -171,20 +191,50 @@ async function readSource($: EngineInterface, files: ReadonlyArray<{ path: strin
 async function snippetRoots($: EngineInterface): Promise<Library['roots']> {
   const home = (await $.env.get('HOME')) ?? ''
   const override = await $.env.get('CYBERINE_SNIPPETS_DIR')
-  const global = override && override.trim() ? trimSlashes(override.trim()) : `${home}/.claude/snippets`
+  const global = override && override.trim() ? trimSlashes(override.trim()) : await defaultGlobal($, home)
   const repo = await $.session.repo().catch(() => null)
   const root = repo?.root ?? (await $.session.root().catch(() => ''))
   const project = root ? `${trimSlashes(root)}/.claude/snippets` : null
   return { global, project: project === global ? null : project }
 }
 
-async function readUsage($: EngineInterface): Promise<Usage> {
-  const raw = await $.store.get(USAGE_KEY).catch(() => undefined)
-  const usage: Usage = {}
+async function defaultGlobal($: EngineInterface, home: string): Promise<string> {
+  const dataHome = await $.env.get('XDG_DATA_HOME')
+  const base = dataHome && dataHome.trim() ? trimSlashes(dataHome.trim()) : home + '/.local/share'
+  const xdg = base + '/cyberine-snippets'
+  if (await $.fs.exists(xdg).catch(() => false)) return xdg
+  return home + '/.claude/snippets'
+}
+
+async function readNumbers($: EngineInterface, key: string): Promise<Usage> {
+  const raw = await $.store.get(key).catch(() => undefined)
+  const out: Usage = {}
   if (raw && typeof raw === 'object') {
-    for (const [k, v] of Object.entries(raw)) if (typeof v === 'number') usage[k] = v
+    for (const [k, v] of Object.entries(raw)) if (typeof v === 'number') out[k] = v
   }
-  return usage
+  return out
+}
+
+async function readUsage($: EngineInterface): Promise<Usage> {
+  return readNumbers($, USAGE_KEY)
+}
+
+async function readSort($: EngineInterface): Promise<SortBy> {
+  const raw = await $.store.get(SORT_KEY).catch(() => undefined)
+  return raw === 'recent' ? 'recent' : 'used'
+}
+
+async function readLastValues($: EngineInterface): Promise<Record<string, Record<string, string>>> {
+  const raw = await $.store.get(VALUES_KEY).catch(() => undefined)
+  const out: Record<string, Record<string, string>> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [slug, vals] of Object.entries(raw)) {
+    if (!vals || typeof vals !== 'object') continue
+    const clean: Record<string, string> = {}
+    for (const [k, v] of Object.entries(vals)) if (typeof v === 'string') clean[k] = v
+    out[slug] = clean
+  }
+  return out
 }
 
 async function reload($: EngineInterface): Promise<Library> {
@@ -200,6 +250,8 @@ async function reload($: EngineInterface): Promise<Library> {
   await $.state.set(libraryRef, library)
   await $.state.set(staleRef, false)
   await $.state.set(usageRef, await readUsage($))
+  await $.state.set(recentRef, await readNumbers($, RECENT_KEY))
+  await $.state.set(sortRef, await readSort($))
   return library
 }
 
@@ -252,7 +304,7 @@ async function focusFromTrigger($: EngineInterface): Promise<void> {
 }
 
 async function applySnippet($: EngineInterface, s: Snippet, values: Record<string, string>, mode: SnippetMode): Promise<ApplyOutcome> {
-  const rendered = renderBody(s.body, values)
+  const rendered = renderBody(s.body, values, clockValues(new Date()))
   const { value: holding } = await $.state.get(heldRef)
   if (mode === 'submit' && !holding) {
     const sent = await $.prompt.submit({ text: rendered.text })
@@ -293,6 +345,18 @@ async function applyNow($: EngineInterface, s: Snippet, values: Record<string, s
   usage[s.slug] = (usage[s.slug] ?? 0) + 1
   await $.store.set(USAGE_KEY, usage)
   await $.state.set(usageRef, usage)
+  const recent = await readNumbers($, RECENT_KEY)
+  recent[s.slug] = Date.now()
+  await $.store.set(RECENT_KEY, recent)
+  await $.state.set(recentRef, recent)
+  const names = placeholdersOf(s.body).map(p => p.name)
+  if (names.length > 0) {
+    const remembered = await readLastValues($)
+    const kept: Record<string, string> = {}
+    for (const name of names) kept[name] = valueOf(values, name)
+    remembered[s.slug] = kept
+    await $.store.set(VALUES_KEY, remembered)
+  }
 }
 
 async function choose($: EngineInterface, path: string, mode?: SnippetMode): Promise<void> {
@@ -301,7 +365,8 @@ async function choose($: EngineInterface, path: string, mode?: SnippetMode): Pro
   const names = placeholdersOf(s.body)
   if (names.length > 0) {
     const values: Record<string, string> = Object.create(null) as Record<string, string>
-    for (const p of names) values[p.name] = p.default
+    const last = (await readLastValues($))[s.slug] ?? {}
+    for (const p of names) values[p.name] = valueOf(last, p.name) || p.default
     await $.state.set(valuesRef, { ...values })
     await go($, { screen: 'fill', path, mode: mode ?? s.mode })
     const first = names[0]
@@ -312,7 +377,7 @@ async function choose($: EngineInterface, path: string, mode?: SnippetMode): Pro
 }
 
 function draftFrom(s: Snippet | undefined, op: FormOp): Draft {
-  if (!s) return { title: '', slug: '', desc: '', tags: '', mode: 'fill', source: 'global', body: '' }
+  if (!s) return { title: '', slug: '', desc: '', tags: '', mode: 'fill', source: 'global', body: '', pinned: false }
   return {
     title: op === 'duplicate' ? `${s.title} (copy)` : s.title,
     slug: op === 'duplicate' ? `${s.slug}-copy` : s.slug,
@@ -321,6 +386,7 @@ function draftFrom(s: Snippet | undefined, op: FormOp): Draft {
     mode: s.mode,
     source: s.source,
     body: s.body,
+    pinned: op === 'duplicate' ? false : s.pinned,
   }
 }
 
@@ -349,7 +415,7 @@ async function insideSnippetRoots($: EngineInterface, ...paths: string[]): Promi
   return paths.every(p => isUnder(lib?.roots.global, p) || isUnder(lib?.roots.project, p))
 }
 
-async function moveToTrash($: EngineInterface, from: string, to: string): Promise<boolean> {
+async function moveFile($: EngineInterface, from: string, to: string): Promise<boolean> {
   if (!(await insideSnippetRoots($, from, to))) return false
   if (await $.fs.exists(to)) return false
   const text = await $.fs.read(from).catch(() => undefined)
@@ -398,7 +464,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
     const keepPath = isEdit && (slug === original.slug || slugFromPath(original.path) !== original.slug)
     const path = keepPath && original ? original.path : `${root}/${slug}.md`
     const body = draft.body.replace(/\r\n/g, '\n').trimEnd()
-    const text = serializeSnippet({ slug, title, desc: draft.desc.trim(), tags, mode: draft.mode, body }, slugFromPath(path))
+    const text = serializeSnippet({ slug, title, desc: draft.desc.trim(), tags, mode: draft.mode, body, pinned: draft.pinned }, slugFromPath(path))
     const check = parseSnippet(path, text, source)
     if (!check.ok) return { ok: false, error: check.error.reason }
     if (isEdit && !(await unchangedOnDisk($, original))) return { ok: false, error: `${original.path} changed on disk since it was loaded; run /sn reload` }
@@ -409,7 +475,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
       return { ok: false, error: `${path} already exists` }
     }
     if (isEdit && path !== original.path) {
-      const isTrashed = await moveToTrash($, original.path, `${root}/.trash/${original.slug}.${stamp()}.md`)
+      const isTrashed = await moveFile($, original.path, `${root}/.trash/${original.slug}.${stamp()}.md`)
       if (!isTrashed) $.ui.toast(`snippets: saved ${path}, but could not move away ${original.path}`)
     }
     await reload($)
@@ -426,9 +492,78 @@ async function deleteSnippet($: EngineInterface, path: string): Promise<string> 
   const lib = await getLibrary($)
   const root = s.source === 'project' ? lib?.roots.project : lib?.roots.global
   const base = root && s.path.startsWith(`${root}/`) ? root : s.path.slice(0, s.path.lastIndexOf('/'))
-  const isMoved = await moveToTrash($, s.path, `${base}/.trash/${s.slug}.${stamp()}.md`)
+  const isMoved = await moveFile($, s.path, `${base}/.trash/${s.slug}.${stamp()}.md`)
   await reload($)
   return isMoved ? '' : `Could not move ${s.path} to the trash folder`
+}
+
+async function togglePin($: EngineInterface, s: Snippet): Promise<string> {
+  const r = await saveDraft($, 'edit', s.path, { ...draftFrom(s, 'edit'), pinned: !s.pinned })
+  return r.ok ? '' : r.error
+}
+
+async function moveSnippet($: EngineInterface, path: string, target: MoveTarget): Promise<SaveResult> {
+  if (isWriting) return { ok: false, error: 'Another save is still running' }
+  isWriting = true
+  try {
+    const s = await byPath($, path)
+    if (!s) return { ok: false, error: 'The file is gone; run /sn reload' }
+    const folder = cleanFolder(target.folder)
+    if (folder === null) return { ok: false, error: 'Folder: names of letters, digits, . _ - separated by /, none starting with a dot' }
+    const lib = await getLibrary($)
+    const root = target.source === 'project' ? lib?.roots.project : lib?.roots.global
+    if (!root) return { ok: false, error: 'No project folder in this session; choose global' }
+    const dest = joinPath(root, folder, s.path.slice(s.path.lastIndexOf('/') + 1))
+    if (dest === s.path) return { ok: false, error: 'The snippet is already there' }
+    const clash = lib?.all.find(x => x.source === target.source && x.slug === s.slug && x.path !== s.path)
+    if (clash) return { ok: false, error: 'A ' + target.source + ' snippet with slug "' + s.slug + '" already exists (' + clash.path + ')' }
+    if (!(await unchangedOnDisk($, s))) return { ok: false, error: s.path + ' changed on disk since it was loaded; run /sn reload' }
+    if (await $.fs.exists(dest)) return { ok: false, error: dest + ' already exists' }
+    if (!(await moveFile($, s.path, dest))) return { ok: false, error: 'Could not move ' + s.path + ' to ' + dest }
+    await reload($)
+    return { ok: true, saved: { slug: s.slug, title: s.title, path: dest, body: s.body } }
+  } finally {
+    isWriting = false
+  }
+}
+
+async function listTrash($: EngineInterface): Promise<TrashItem[]> {
+  const lib = (await getLibrary($)) ?? (await reload($))
+  const items: TrashItem[] = []
+  const sources: Array<[SnippetSource, string | null]> = [['global', lib.roots.global], ['project', lib.roots.project]]
+  for (const [source, root] of sources) {
+    if (!root) continue
+    const dir = root + '/' + TRASH_DIR
+    const entries = await $.fs.list(dir).catch(() => [])
+    for (const entry of entries) {
+      if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.md')) continue
+      const path = dir + '/' + entry.name
+      const slug = trashSlug(entry.name)
+      const text = await $.fs.read(path).catch(() => '')
+      const parsed = parseSnippet(path, typeof text === 'string' ? text : '', source, entry.mtimeMs)
+      items.push({ path, source, slug, title: parsed.ok ? parsed.snippet.title : slug, mtimeMs: entry.mtimeMs })
+    }
+  }
+  return items.sort((a, b) => b.mtimeMs - a.mtimeMs)
+}
+
+async function restoreTrash($: EngineInterface, item: TrashItem): Promise<string> {
+  const lib = await getLibrary($)
+  const root = item.source === 'project' ? lib?.roots.project : lib?.roots.global
+  if (!root) return 'No ' + item.source + ' folder in this session'
+  const dest = root + '/' + item.slug + '.md'
+  if (await $.fs.exists(dest)) return dest + ' already exists; rename or delete it first'
+  if (!(await moveFile($, item.path, dest))) return 'Could not restore ' + item.path
+  await reload($)
+  await $.state.set(trashRef, await listTrash($))
+  return ''
+}
+
+async function openTrash($: EngineInterface): Promise<{ text?: string }> {
+  const opened = await openPicker($, { screen: 'list' }, '')
+  await $.state.set(trashRef, await listTrash($))
+  await go($, { screen: 'trash' })
+  return opened
 }
 
 async function editBodyInPrompt($: EngineInterface, target: Saved): Promise<void> {
@@ -458,6 +593,10 @@ async function renderPane($: EngineInterface, e: PaneEvent) {
       return renderForm($, e, view)
     case 'delete':
       return renderDelete($, e, view.path, view.back)
+    case 'move':
+      return renderMove($, e, view.path)
+    case 'trash':
+      return renderTrash($, e)
     default:
       return renderList($, e)
   }
@@ -477,6 +616,8 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const library = (await $.state.get(libraryRef)).value
   const usage = (await $.state.get(usageRef)).value ?? {}
+  const recent = (await $.state.get(recentRef)).value ?? {}
+  const sortBy: SortBy = (await $.state.get(sortRef)).value ?? 'used'
   const query = (await $.state.get(queryRef)).value ?? ''
   const filter = (await $.state.get(filterRef)).value ?? ALL_FILTER
   const page = (await $.state.get(pageRef)).value ?? 0
@@ -487,7 +628,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const all = library?.snippets ?? []
   const placement = e.props.placement
   const cols = Math.max(20, e.props.bodyColumns - 1)
-  const matches = (q: string, f: Filter) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage)
+  const matches = (q: string, f: Filter) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy })
   const hits = matches(query, filter)
   const toolsWrap = cols < TOOLS_ONE_ROW ? 1 : 0
   const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap
@@ -530,6 +671,15 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     void $.state.set(focusedRef, null)
   }
   const openNew = () => { void startForm($, 'new', null) }
+  const toggleSort = () => {
+    void (async () => {
+      const next: SortBy = sortBy === 'used' ? 'recent' : 'used'
+      await $.store.set(SORT_KEY, next)
+      await $.state.set(sortRef, next)
+      await $.state.set(pageRef, 0)
+      await $.state.set(focusedRef, null)
+    })()
+  }
   const reloadNow = () => {
     void (async () => {
       const lib = await reload($)
@@ -584,14 +734,14 @@ async function renderList($: EngineInterface, e: PaneEvent) {
             </Box>
           </Box>
         ) : null}
-        {shown.map(s => (
+        {shown.map((s, i) => (
           <Box key={`row-${s.path}`} flexDirection="row" columnGap={2}>
             <Box key={`t-${s.path}`} flexGrow={1}>
-              <Button key={`r:${s.path}`} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>
+              {i < HOTKEY_ROWS ? <Button key={`r:${s.path}`} plain hotkey={String(i + 1)} onPress={() => { void choose($, s.path) }}>{fit(s.title, col.title - 1)}</Button> : <Button key={`r:${s.path}`} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>}
             </Box>
             {col.showMode ? <Text key={`mo:${s.path}`} {...LOOK.meta}>{s.mode.padEnd(6)}</Text> : null}
             <Text key={`sl:${s.path}`} {...LOOK.accent}>{fit(s.slug, col.slug).padStart(col.slug)}</Text>
-            <Text key={`b:${s.path}`} {...LOOK.badge}>{sourceLetter(s)}</Text>
+            <Text key={`b:${s.path}`} {...LOOK.badge}>{sourceLetter(s) + (s.pinned ? PIN_MARK : '')}</Text>
           </Box>
         ))}
       </Box>
@@ -616,7 +766,8 @@ async function renderList($: EngineInterface, e: PaneEvent) {
         <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
         <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
         {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
-        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Enter use  Tab move  Esc close'}</Text>
+        <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
+        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Enter use  Tab then 1-9 pick  Esc close'}</Text>
       </Box>
     </Box>
   )
@@ -628,11 +779,27 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
   if (!s) return gone($, e, 'This snippet')
   const names = placeholdersOf(s.body)
   const back = () => { void go($, { screen: 'list' }) }
+  const error = (await $.state.get(formErrorRef)).value ?? ''
+  const lib = await getLibrary($)
+  const root = s.source === 'project' ? lib?.roots.project : lib?.roots.global
+  const startMove = () => {
+    void (async () => {
+      await $.state.set(moveRef, { source: s.source, folder: root ? folderOf(root, s.path) : '' })
+      await go($, { screen: 'move', path: s.path })
+    })()
+  }
+  const pin = () => {
+    void (async () => {
+      const err = await togglePin($, s)
+      await $.state.set(formErrorRef, err)
+      await claimKeys($, 'pin')
+    })()
+  }
   return (
     <Box flexDirection="column">
       <Text key="title" {...LOOK.title} wrap="wrap">{s.title}</Text>
       {s.desc ? <Text key="desc" {...LOOK.meta} wrap="wrap">{s.desc}</Text> : null}
-      <Text key="meta" {...LOOK.meta} wrap="truncate-end">{metaLine(s) + (s.tags.length ? ' | ' + s.tags.join(', ') : '')}</Text>
+      <Text key="meta" {...LOOK.meta} wrap="truncate-end">{metaLine(s) + (s.pinned ? ' | pinned' : '') + (s.tags.length ? ' | ' + s.tags.join(', ') : '')}</Text>
       <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text>
       {names.length > 0 ? <Text key="vars" {...LOOK.meta} wrap="wrap">{'Placeholders: ' + names.map(p => (p.default ? p.name + '=' + p.default : p.name)).join(', ')}</Text> : null}
       <Box key="body" flexDirection="column" marginY={1}>
@@ -646,9 +813,12 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
         <Button plain key="edit-body" hotkey="e" onPress={() => { void editBodyInPrompt($, s) }}>Edit body in prompt</Button>
         <Button plain key="edit-info" hotkey="i" onPress={() => { void startForm($, 'edit', s.path) }}>Edit info</Button>
         <Button plain key="dup" hotkey="u" onPress={() => { void startForm($, 'duplicate', s.path) }}>Duplicate</Button>
+        <Button plain key="move" hotkey="m" onPress={startMove}>Move</Button>
+        <Button plain key="pin" hotkey="p" onPress={pin}>{s.pinned ? 'Unpin' : 'Pin'}</Button>
         <Button plain key="del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: s.path, back: 'detail' }) }}>Delete</Button>
         <Button plain key="back" hotkey="b" role="dismiss" onPress={back}>Back</Button>
       </Box>
+      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
     </Box>
   )
 }
@@ -792,7 +962,7 @@ async function renderDelete($: EngineInterface, e: PaneEvent, path: string, back
     <Box flexDirection="column">
       <Text key="h" {...LOOK.heading} wrap="wrap">{`Delete "${s.title}"?`}</Text>
       <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text>
-      <Text key="note" {...LOOK.meta} wrap="wrap">{`The file moves to the .trash folder of its snippet root.${s.source === 'project' ? ' A global snippet with the same slug, if any, shows again.' : ''}`}</Text>
+      <Text key="note" {...LOOK.meta} wrap="wrap">{'The file moves to the .trash folder of its snippet root; /sn trash restores it.' + (s.source === 'project' ? ' A global snippet with the same slug, if any, shows again.' : '')}</Text>
       {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
       <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
         <Button plain key="cancel" autoFocus hotkey="n" role="dismiss" onPress={() => { void keep() }}>No</Button>
@@ -800,6 +970,101 @@ async function renderDelete($: EngineInterface, e: PaneEvent, path: string, back
       </Box>
     </Box>
   )
+}
+
+async function renderMove($: EngineInterface, e: PaneEvent, path: string) {
+  const { Box, Text, Button, Input } = $.ui.resolve(e)
+  const s = await byPath($, path)
+  const target = (await $.state.get(moveRef)).value
+  const error = (await $.state.get(formErrorRef)).value ?? ''
+  const lib = await getLibrary($)
+  if (!s || !target) return gone($, e, 'This snippet')
+  const root = target.source === 'project' ? lib?.roots.project : lib?.roots.global
+  const folder = cleanFolder(target.folder)
+  const name = s.path.slice(s.path.lastIndexOf('/') + 1)
+  const preview = root && folder !== null ? joinPath(root, folder, name) : ''
+  const patch = (next: Partial<MoveTarget>) => { void $.state.set(moveRef, { ...target, ...next }) }
+  const cancel = () => { void go($, { screen: 'detail', path }) }
+  const submit = () => {
+    void (async () => {
+      const current = (await $.state.get(moveRef)).value ?? target
+      const r = await moveSnippet($, path, current)
+      if (!r.ok) {
+        await $.state.set(formErrorRef, r.error)
+        return
+      }
+      await go($, { screen: 'detail', path: r.saved.path })
+      await claimKeys($, 'apply')
+    })()
+  }
+  const toLabel = '[ To: ' + target.source + ' ]'
+  return (
+    <Box flexDirection="column">
+      <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Move "' + s.title + '"'}</Text>
+      <Text key="from" {...LOOK.meta} wrap="truncate-start">{'From ' + s.path}</Text>
+      {lib?.roots.project ? <Button plain key="m:source" onPress={() => patch({ source: target.source === 'project' ? 'global' : 'project' })}>{toLabel}</Button> : null}
+      <Input key="m:folder" label="Folder " autoFocus value={target.folder} placeholder="(top level), or a/b" submitLabel="move" onInput={(v: string) => patch({ folder: v })} onSubmit={submit} />
+      <Text key="to" {...LOOK.meta} wrap="truncate-start">{preview ? 'To ' + preview : 'Folder: letters, digits, . _ - separated by /'}</Text>
+      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
+      <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
+        <Button plain key="m:save" variant="primary" onPress={submit}>[ Move ]</Button>
+        <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
+      </Box>
+    </Box>
+  )
+}
+
+async function renderTrash($: EngineInterface, e: PaneEvent) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const items = (await $.state.get(trashRef)).value ?? []
+  const error = (await $.state.get(formErrorRef)).value ?? ''
+  const notice = (await $.state.get(noticeRef)).value ?? ''
+  const cols = Math.max(20, e.props.bodyColumns - 1)
+  const shown = items.slice(0, TRASH_SHOWN)
+  const back = () => { void go($, { screen: 'list' }) }
+  const restore = (item: TrashItem) => () => {
+    void (async () => {
+      const err = await restoreTrash($, item)
+      await $.state.set(formErrorRef, err)
+      await $.state.set(noticeRef, err ? '' : 'restored ' + item.slug)
+      await claimKeys($, firstTrashKey((await $.state.get(trashRef)).value ?? []))
+    })()
+  }
+  const more = items.length > shown.length ? ' (newest ' + String(shown.length) + ' shown)' : ''
+  return (
+    <Box flexDirection="column">
+      <Text key="h" {...LOOK.heading}>{'Trash: ' + String(items.length) + ' file(s)' + more}</Text>
+      {items.length === 0 ? <Text key="empty" {...LOOK.meta}>Nothing in the .trash folders.</Text> : null}
+      {shown.map(item => (
+        <Box key={'row-' + item.path} flexDirection="row" columnGap={2}>
+          <Box key={'tt-' + item.path} flexGrow={1}>
+            <Button key={'t:' + item.path} plain onPress={restore(item)}>{BULLET + fit(item.title, Math.max(8, cols - 40))}</Button>
+          </Box>
+          <Text key={'ts-' + item.path} {...LOOK.accent}>{fit(item.slug, 20)}</Text>
+          <Text key={'td-' + item.path} {...LOOK.meta}>{new Date(item.mtimeMs).toISOString().slice(0, 10)}</Text>
+          <Text key={'tb-' + item.path} {...LOOK.badge}>{item.source === 'project' ? 'P' : 'G'}</Text>
+        </Box>
+      ))}
+      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
+      <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
+        <Button plain key="trash-back" role="dismiss" onPress={back}>[ Back ]</Button>
+        <Text key="hint" {...LOOK.hint} wrap="truncate-end">{(notice ? notice + '  ' : '') + 'Enter restores to its snippet folder  Esc close'}</Text>
+      </Box>
+    </Box>
+  )
+}
+
+async function runDirect($: EngineInterface, slug: string): Promise<{ text?: string }> {
+  const lib = (await getLibrary($)) ?? (await reload($))
+  const s = lib.snippets.find(x => x.slug === slug)
+  if (!s) return openPicker($, { screen: 'list' }, slug)
+  if (placeholdersOf(s.body).length > 0) {
+    const opened = await openPicker($, { screen: 'list' }, '')
+    await choose($, s.path)
+    return opened
+  }
+  await choose($, s.path)
+  return {}
 }
 
 async function runCommand($: EngineInterface, args: string): Promise<{ text?: string }> {
@@ -834,6 +1099,9 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
       await endBodyEdit($)
       return { text: editing ? `snippets: stopped editing "${editing.title}"; the prompt text is left as is` : 'snippets: nothing was being edited' }
     }
+    case 'trash':
+      await $.state.set(heldRef, null)
+      return openTrash($)
     case 'new': {
       const opened = await openPicker($, { screen: 'list' }, '')
       await startForm($, 'new', null, { slug: rest[0] })
@@ -841,6 +1109,7 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
     }
     default:
       await $.state.set(heldRef, null)
+      if (rest.length === 0 && verb.length > 1 && verb.endsWith(DIRECT)) return runDirect($, verb.slice(0, -1))
       return openPicker($, { screen: 'list' }, args)
   }
 }
@@ -850,8 +1119,8 @@ export const register: Register = on => {
     await $.state.set(pendingCursorRef, null)
     await $.state.set(bodyEditRef, null)
     await $.state.set(heldRef, null)
-    await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | new | cancel | reload | list | doctor | help]' })
-    await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | new | cancel | reload | list | doctor | help]' })
+    await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | slug! | new | trash | cancel | reload | list | doctor | help]' })
+    await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | slug! | new | trash | cancel | reload | list | doctor | help]' })
     const library = await reload($)
     if (library.errors.length > 0) $.ui.toast(`snippets: ${library.errors.length} snippet file(s) skipped, run /sn doctor`)
     return next(e)

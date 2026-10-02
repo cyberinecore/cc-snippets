@@ -14,12 +14,12 @@ const FIXTURES: Record<string, string> = {
 
 type World = { files: Map<string, { text: string; mtimeMs: number }>; fills: string[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
-function world(on: On, options: { isPlaced?: boolean } = {}): World {
+function world(on: On, options: { isPlaced?: boolean; env?: Record<string, string>; project?: string } = {}): World {
   const w: World = { files: new Map(), fills: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
   const isDir = (p: string) => [...w.files.keys()].some(f => f.startsWith(`${p}/`))
-  mock.env(on, { HOME: '/home/test', CYBERINE_SNIPPETS_DIR: ROOT })
+  mock.env(on, options.env ?? { HOME: '/home/test', CYBERINE_SNIPPETS_DIR: ROOT })
   mock.store(on)
   on('fs.exists', async ($, e) => ({ value: w.files.has(e.path) || isDir(e.path) }))
   on('fs.list', async ($, e) => {
@@ -48,7 +48,7 @@ function world(on: On, options: { isPlaced?: boolean } = {}): World {
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.repo', async () => ({ value: null }))
-  on('session.root', async () => ({ value: '' }))
+  on('session.root', async () => ({ value: options.project ?? '' }))
   on('ui.open', async () => {
     w.opens++
     return { value: options.isPlaced === false ? { isPlaced: false as const, reason: 'narrow terminal' } : { isPlaced: true as const } }
@@ -434,5 +434,167 @@ describe('commands', () => {
     await $.command.run(run('reload'))
     expect((await $.command.run(run('doctor'))).text).toMatch(/broken\.md: frontmatter has no title/)
     expect((await $.command.run(run('list'))).text).toMatch(/review-diff - Review current diff/)
+  })
+})
+
+describe('v0.2 organize and speed', () => {
+  const texts = async (ui: { findAll: (q: { type: string }) => Promise<Array<{ text: string }>> }) => (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+
+  test('Move puts a snippet into a subfolder and removes the original', async ($, on) => {
+    const w = world(on)
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'move' })
+    await ui.input({ key: 'm:folder', text: 'team/daily', kind: 'change' })
+    await ui.press({ key: 'm:save' })
+    expect(w.files.has(`${ROOT}/multi-line.md`)).toBe(false)
+    expect(w.files.get(`${ROOT}/team/daily/multi-line.md`)?.text).toBe(FIXTURES[`${ROOT}/multi-line.md`])
+    expect(await ui.find({ key: 'edit-info' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('Move refuses a folder that climbs out or starts with a dot', async ($, on) => {
+    const w = world(on)
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'move' })
+    await ui.input({ key: 'm:folder', text: '../out', kind: 'change' })
+    await ui.press({ key: 'm:save' })
+    expect(await texts(ui)).toMatch(/Folder: names of letters/)
+    expect(w.files.has(`${ROOT}/multi-line.md`)).toBe(true)
+    await ui.unmount()
+  })
+
+  test('Move switches a global snippet to the project folder', async ($, on) => {
+    const w = world(on, { project: '/proj' })
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'move' })
+    await ui.press({ key: 'm:source' })
+    await ui.press({ key: 'm:save' })
+    expect(w.files.has(`${ROOT}/multi-line.md`)).toBe(false)
+    expect(w.files.has('/proj/.claude/snippets/multi-line.md')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('/sn trash restores a deleted snippet and refuses to overwrite', async ($, on) => {
+    const w = world(on)
+    await $.command.run(run('plan'))
+    let ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: 'list-del' })
+    await ui.press({ key: 'confirm' })
+    await ui.unmount()
+    const trashed = [...w.files.keys()].find(p => p.startsWith(`${ROOT}/.trash/multi-line.`)) ?? ''
+    expect(trashed).not.toBe('')
+    w.files.set(`${ROOT}/multi-line.md`, { text: '---\ntitle: Taken\n---\nx\n', mtimeMs: 900 })
+    await $.command.run(run('trash'))
+    ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    expect(await texts(ui)).toMatch(/Trash: 1 file/)
+    await ui.press({ key: `t:${trashed}` })
+    expect(await texts(ui)).toMatch(/already exists/)
+    w.files.delete(`${ROOT}/multi-line.md`)
+    await ui.press({ key: `t:${trashed}` })
+    expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toBe(FIXTURES[`${ROOT}/multi-line.md`])
+    expect(w.files.has(trashed)).toBe(false)
+    expect(await texts(ui)).toMatch(/restored multi-line/)
+    await ui.unmount()
+  })
+
+  test('the first nine rows carry digit hotkeys', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    const rows = (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:'))
+    expect(rows.length).toBeGreaterThan(9)
+    expect(rows.slice(0, 9).map(b => b.props.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9'])
+    expect(rows[9]?.props.hotkey).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('Pin writes pin: true and puts the snippet first', async ($, on) => {
+    const w = world(on)
+    await $.command.run(run('tests'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'pin' })
+    expect(w.files.get(`${ROOT}/sub/write-tests.md`)?.text).toBe('---\ntitle: Write tests\ntags: [test]\nmode: submit\npin: true\n---\nWrite failing tests first.\n')
+    expect(await texts(ui)).toMatch(/pinned/)
+    await ui.press({ key: 'back' })
+    await ui.input({ key: 'q', text: '', kind: 'change' })
+    const rows = (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:'))
+    expect(rows[0]?.key).toBe(`r:${ROOT}/sub/write-tests.md`)
+    await ui.unmount()
+  })
+
+  test('placeholder values from the last use prefill the form', async ($, on) => {
+    world(on)
+    await $.command.run(run('review'))
+    let ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: `r:${ROOT}/review-diff.md` })
+    await ui.input({ key: 'v:scope', text: 'auth', kind: 'change' })
+    await ui.press({ key: 'apply' })
+    await ui.unmount()
+    await $.command.run(run('review'))
+    ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    await ui.press({ key: `r:${ROOT}/review-diff.md` })
+    expect((await ui.find({ key: 'v:scope' }))?.props.value).toBe('auth')
+    expect((await ui.find({ key: 'v:base' }))?.props.value).toBe('main')
+    await ui.unmount()
+  })
+
+  test('/sn <slug>! applies at once, asks for placeholders, and falls back to the picker', async ($, on) => {
+    const w = world(on)
+    const r = await $.command.run(run('multi-line!'))
+    expect(r.text).toBeUndefined()
+    expect(w.fills).toEqual(['Before writing code:\n1. Restate the goal.\n2. List the files.'])
+    await $.command.run(run('review-diff!'))
+    let ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    expect(await ui.find({ key: 'v:scope' })).toBeDefined()
+    await ui.unmount()
+    await $.command.run(run('nothing-here!'))
+    ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    expect((await ui.find({ key: 'q' }))?.props.value).toBe('nothing-here')
+    await ui.unmount()
+  })
+
+  test('{{date}} and {{time}} fill themselves without a form', async ($, on) => {
+    const w = world(on)
+    w.files.set(`${ROOT}/stamp.md`, { text: '---\ntitle: Stamp\n---\nOn {{date}} at {{time}}.\n', mtimeMs: 700 })
+    await $.command.run(run('stamp!'))
+    expect(w.fills[0]).toMatch(/^On \d{4}-\d{2}-\d{2} at \d{2}:\d{2}\.$/)
+  })
+
+  test('the Sort button switches between used and recent and remembers it', async ($, on) => {
+    world(on)
+    await $.command.run(run(''))
+    let ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    expect((await ui.find({ key: 'sort' }))?.text).toMatch(/Sort: used/)
+    await ui.press({ key: 'sort' })
+    expect((await ui.find({ key: 'sort' }))?.text).toMatch(/Sort: recent/)
+    await ui.unmount()
+    await $.command.run(run('reload'))
+    await $.command.run(run(''))
+    ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
+    expect((await ui.find({ key: 'sort' }))?.text).toMatch(/Sort: recent/)
+    await ui.unmount()
+  })
+
+  test('without CYBERINE_SNIPPETS_DIR an existing XDG folder becomes the global folder', async ($, on) => {
+    const w = world(on, { env: { HOME: '/home/test', XDG_DATA_HOME: '/xdg' } })
+    w.files.set('/xdg/cyberine-snippets/hi.md', { text: '---\ntitle: Hi\n---\nhi\n', mtimeMs: 800 })
+    await $.command.run(run('reload'))
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/xdg\/cyberine-snippets/)
+  })
+
+  test('without CYBERINE_SNIPPETS_DIR or an XDG folder the global folder is ~/.claude/snippets', async ($, on) => {
+    world(on, { env: { HOME: '/home/test' } })
+    await $.command.run(run('reload'))
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/home\/test\/\.claude\/snippets/)
   })
 })

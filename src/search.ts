@@ -1,4 +1,4 @@
-import type { Snippet, Usage } from '../types'
+import type { Snippet, SortBy, Usage } from '../types'
 
 function tokenScore(s: Snippet, token: string): number {
   const slug = s.slug.toLowerCase()
@@ -15,9 +15,16 @@ function tokenScore(s: Snippet, token: string): number {
   return 0
 }
 
-export function rank(snippets: readonly Snippet[], query: string, usage: Usage = {}): Snippet[] {
+export type RankOptions = { recent?: Usage; by?: SortBy }
+
+export function rank(snippets: readonly Snippet[], query: string, usage: Usage = {}, options: RankOptions = {}): Snippet[] {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const recent = options.recent ?? {}
   const used = (s: Snippet) => usage[s.slug] ?? 0
+  const last = (s: Snippet) => recent[s.slug] ?? 0
+  const pin = (s: Snippet) => (s.pinned ? 1 : 0)
+  const primary = options.by === 'recent' ? last : used
+  const secondary = options.by === 'recent' ? used : last
   const scored: Array<{ s: Snippet; score: number }> = []
   for (const s of snippets) {
     let score = 0
@@ -32,6 +39,6 @@ export function rank(snippets: readonly Snippet[], query: string, usage: Usage =
     }
     if (isHit) scored.push({ s, score })
   }
-  scored.sort((a, b) => b.score - a.score || used(b.s) - used(a.s) || a.s.title.localeCompare(b.s.title))
+  scored.sort((a, b) => b.score - a.score || pin(b.s) - pin(a.s) || primary(b.s) - primary(a.s) || secondary(b.s) - secondary(a.s) || a.s.title.localeCompare(b.s.title))
   return scored.map(x => x.s)
 }

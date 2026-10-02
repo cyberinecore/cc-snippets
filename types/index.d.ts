@@ -12,6 +12,7 @@ export type Snippet = {
   path: string
   source: SnippetSource
   mtimeMs: number
+  pinned: boolean
 }
 
 export type LoadError = { path: string; reason: string }
@@ -36,6 +37,8 @@ export type View =
   | { screen: 'fill'; path: string; mode: SnippetMode }
   | { screen: 'form'; op: FormOp; path: string | null; fromDraft?: boolean }
   | { screen: 'delete'; path: string; back: 'list' | 'detail' }
+  | { screen: 'move'; path: string }
+  | { screen: 'trash' }
 
 export type FormOp = 'new' | 'edit' | 'duplicate'
 
@@ -47,7 +50,14 @@ export type Draft = {
   mode: SnippetMode
   source: SnippetSource
   body: string
+  pinned: boolean
 }
+
+export type SortBy = 'used' | 'recent'
+
+export type MoveTarget = { source: SnippetSource; folder: string }
+
+export type TrashItem = { path: string; source: SnippetSource; slug: string; title: string; mtimeMs: number }
 
 export type Filter = { source: 'all' | SnippetSource; tag: string }
 
@@ -73,6 +83,10 @@ declare module 'claude-code' {
       held: HeldDraft | null
       stale: boolean
       notice: string
+      recent: Usage
+      sort: SortBy
+      move: MoveTarget | null
+      trash: TrashItem[]
     }
   }
 }

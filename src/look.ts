@@ -70,6 +70,8 @@ export function previewOf(s: Snippet, lines: number): string[] {
 
 export const BULLET = '\u2022 '
 
+export const PIN_MARK = '*'
+
 export function shortDesc(s: Snippet): string {
   if (s.desc) return s.desc
   const line = s.body.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? ''

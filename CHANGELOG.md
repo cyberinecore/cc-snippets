@@ -2,6 +2,18 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.0] - 2026-10-02
+
+- Move a snippet from Details (`m`): switch between the global and project folders and choose a subfolder. Nothing is overwritten; a slug that already exists in the target folder is refused.
+- `/sn trash` lists deleted snippets, newest first; Enter restores one to its snippet folder, refusing to overwrite a file that is already there.
+- The first nine results carry digit hotkeys: Tab from the search field, then `1`-`9` applies that result. Digits typed into the search field still search.
+- Pin a snippet from Details (`p`): `pin: true` is written to its file and pinned snippets come first after the search score.
+- A placeholder form starts from the values you typed the last time you used that snippet.
+- `/sn <slug>!` applies the snippet with that exact slug at once; a snippet with placeholders opens its form, and an unknown slug opens the picker filtered.
+- `{{date}}` and `{{time}}` fill themselves with the local date (YYYY-MM-DD) and time (HH:MM).
+- A Sort button in the list switches between most used and most recently used; the choice is remembered.
+- With no `CYBERINE_SNIPPETS_DIR`, an existing `$XDG_DATA_HOME/cyberine-snippets` folder (default `~/.local/share/cyberine-snippets`) is the global folder; otherwise `~/.claude/snippets` as before.
+
 ## [0.1.2] - 2026-10-02
 
 - Opening the picker after snippet files were added, changed or removed outside Claude shows "Snippet files changed on disk" with a Reload button, instead of silently showing the old list.

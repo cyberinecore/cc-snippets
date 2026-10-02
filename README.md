@@ -32,7 +32,7 @@ claude --plugin-dir /path/to/cc-snippets
 
 ## Snippet files
 
-- Global: `~/.claude/snippets/**/*.md`. Set `CYBERINE_SNIPPETS_DIR` to use another folder.
+- Global: `~/.claude/snippets/**/*.md`. Set `CYBERINE_SNIPPETS_DIR` to use another folder. Without it, an existing `$XDG_DATA_HOME/cyberine-snippets` folder (default `~/.local/share/cyberine-snippets`) is used instead of `~/.claude/snippets`; create that folder to opt in.
 - Project: `<repo root>/.claude/snippets/**/*.md`. A project snippet replaces a global one with the same slug.
 - Files and folders whose names start with a dot are ignored, which is where `.trash` lives.
 
@@ -53,11 +53,13 @@ Review the diff against {{base:main}} and report only merge blockers for {{scope
 | `desc` | no | One line shown under the title |
 | `tags` | no | `[a, b]` or a block list; searchable and filterable |
 | `mode` | no | `fill` (default) puts the text in the prompt box; `submit` sends it to Claude at once |
+| `pin` | no | `true` puts the snippet first in the list, after the search score |
 
 Placeholders in the body:
 
 - `{{name}}` asks for a value before applying.
 - `{{name:default}}` asks with the default prefilled; an empty answer keeps the default.
+- `{{date}}` and `{{time}}` fill themselves with the local date (YYYY-MM-DD) and time (HH:MM); they are never asked.
 - `{{cursor}}` marks where you continue typing. Claude Code gives plugins no way to move the caret, so the plugin redirects the first key you type after the fill to that mark.
 
 A file that fails to parse is skipped and listed by `/sn doctor`; it never stops the rest from loading.
@@ -68,11 +70,13 @@ A file that fails to parse is skipped and listed by `/sn doctor`; it never stops
 
 `/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. With an empty search the most-used snippets come first. Each result is one line: the title, its mode, its slug and `G` (global) or `P` (project); below a divider the focused snippet previews.
 
-Down or Tab moves from the search field to the results; Enter on a result applies it, and Enter in the search field applies the top hit. A `fill` snippet lands in the prompt box and the pane closes; a second Enter then sends it to Claude as with anything you type, so review it first. A `submit` snippet is sent at once.
+Down or Tab moves from the search field to the results; Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus is on the results, `1` to `9` apply the first nine rows; while the search field has the focus, digits are typed into the search. The Sort button switches the order between most used and most recently used, and remembers the choice. Pinned snippets (a `*` after the source letter) come first.
+
+When you know the slug, `/sn <slug>!` skips the picker: the snippet is applied at once, a snippet with placeholders opens its form, and an unknown slug opens the picker filtered. A `fill` snippet lands in the prompt box and the pane closes; a second Enter then sends it to Claude as with anything you type, so review it first. A `submit` snippet is sent at once.
 
 ### Fill placeholders
 
-A snippet with `{{name}}` or `{{name:default}}` asks for the values first. Enter moves to the next field; the last Enter applies.
+A snippet with `{{name}}` or `{{name:default}}` asks for the values first. Enter moves to the next field; the last Enter applies. The next time you use that snippet, the form starts from the values you typed last.
 
 ![The placeholder form](assets/screenshot-placeholder-form.png)
 
@@ -96,9 +100,13 @@ New (or `/snippets new`) opens the form; the slug follows the title until you ed
 
 ![Creating a snippet](assets/screenshot-new.png)
 
-Details shows the whole snippet and its actions, each with a letter key: `a` apply the other way (fill instead of submit or back), `e` edit the body in the prompt box, `i` edit title, slug, description, tags and mode, `u` duplicate, `d` delete, `b` back.
+Details shows the whole snippet and its actions, each with a letter key: `a` apply the other way (fill instead of submit or back), `e` edit the body in the prompt box, `i` edit title, slug, description, tags and mode, `u` duplicate, `m` move, `p` pin or unpin, `d` delete, `b` back.
 
-Delete, from Details (`d`) or from the Delete button under the list for the focused snippet, asks first: `y` deletes, `n` keeps it. The file moves to the `.trash` folder of its snippet folder, so a mistake can be copied back by hand.
+Move takes the snippet to another folder: To switches between global and project, and Folder names a subfolder (`team/daily`), or stays empty for the top level. The file keeps its name and content; a snippet with the same slug already in the target source, or an existing file, stops the move.
+
+Delete, from Details (`d`) or from the Delete button under the list for the focused snippet, asks first: `y` deletes, `n` keeps it. The file moves to the `.trash` folder of its snippet folder.
+
+`/sn trash` lists what is in the `.trash` folders, newest first. Enter on one restores it to the top of its snippet folder; if a file with that name is already there, the restore is refused and nothing is overwritten.
 
 ![Delete asks first, with No focused](assets/screenshot-delete-confirm.png)
 
@@ -120,7 +128,9 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 |---|---|
 | `/snippets` or `/sn` | Open the picker (`/snippets` is the full name; `/sn` is the short alias, and every row below works with either) |
 | `/sn <query>` | Open the picker pre-filtered |
+| `/sn <slug>!` | Apply the snippet with that exact slug without the picker |
 | `/sn new [slug]` | Create a snippet |
+| `/sn trash` | Restore a deleted snippet |
 | `/sn cancel` | Stop editing a snippet body in the prompt box |
 | `/sn reload` | Re-read the snippet folders |
 | `/sn list` | Print `slug - title` per snippet |
@@ -128,11 +138,11 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 
 ## What it reads, writes, runs and sends
 
-- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, and `<repo root>/.claude/snippets`). It reads the `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables only to find the global folder. It reads no other file.
+- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, or an existing `$XDG_DATA_HOME/cyberine-snippets`, and `<repo root>/.claude/snippets`), and the files in their `.trash` folders when you open `/sn trash`. It reads the `HOME`, `CYBERINE_SNIPPETS_DIR` and `XDG_DATA_HOME` environment variables only to find the global folder. It reads no other file.
 - What it puts in a prompt it submits (`prompt.submit`): only the text of a snippet you picked whose `mode` is `submit`, with the placeholder values you typed, after you chose it. It never adds the content of any other file, the conversation or your draft.
 - The prompt box (`prompt.read`, `prompt.fill`): it reads the draft only to insert a snippet at your caret, to hold the draft while the `;;` picker is open, and to save a draft or an edited body as a snippet file. The draft goes back into the prompt box or into that snippet file, nowhere else. While a body edit or a held draft is active, Enter in the prompt box saves or is held back instead of sending. It never reads the conversation transcript, Claude's memory or chat history.
-- Files it writes (`fs.write`): only snippet `.md` files inside the snippet folders above: a snippet you create or edit, and the copy of a deleted or renamed snippet in the `.trash` folder of its snippet folder. Every write and removal is checked to stay inside those folders; it never writes build, start-up, settings or instruction files.
-- Programs it runs (`process.run`): one program, `rm -f -- <file>`, with a fixed program name and no shell. It runs only after the snippet's text was copied into `.trash`, to remove the original file of a snippet you deleted or renamed; the path is always a snippet file inside the snippet folders. Claude Code's file API has no delete, which is why it is needed. It sends nothing anywhere.
+- Files it writes (`fs.write`): only snippet `.md` files inside the snippet folders above: a snippet you create, edit, pin, move or restore, and the copy of a deleted or renamed snippet in the `.trash` folder of its snippet folder. Every write and removal is checked to stay inside those folders; it never writes build, start-up, settings or instruction files.
+- Programs it runs (`process.run`): one program, `rm -f -- <file>`, with a fixed program name and no shell. It runs only after the snippet's text was copied to its new place (the `.trash` folder, the folder you moved it to, or back out of `.trash`), to remove the original file of a snippet you deleted, renamed, moved or restored; the path is always a snippet file inside the snippet folders. Claude Code's file API has no delete, which is why it is needed. It sends nothing anywhere.
 - Hooks it registers, and what each does:
   - `session.start`: registers `/snippets` and `/sn` and loads the snippet folders.
   - `command.run` for `/snippets` and `/sn`: runs the subcommands above.
@@ -140,7 +150,7 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
   - `ui.close`: when its own pane closes while a `;;` draft is held, puts that draft back in the prompt box. It ignores every other pane.
   - `prompt.edit`: notices `;;` in the prompt box, and redirects the first keystroke after a fill to the `{{cursor}}` mark. Every other edit passes through unchanged.
   - `prompt.submit`: only while you are editing a snippet body, or while the picker holds a `;;` draft, Enter in the prompt box saves the body or is held back instead of sending; every other prompt passes through unchanged.
-- What it stores: a per-slug usage count in the plugin's own Claude Code store, to order results.
+- What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
 - What it sends off the machine: nothing. It has no network code. See `PRIVACY.md`.
 
 ## Troubleshooting
@@ -149,6 +159,7 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 - A snippet is missing: run `/sn doctor`, fix the file, then `/sn reload`.
 - "changed on disk since it was loaded": another editor changed the file; press Reload in the picker (or run `/sn reload`) and repeat the edit.
 - Text did not land in the prompt: the box refuses fills while another dialog holds the keys; close it and pick again.
+- Claude cannot create a snippet for you ("is in another repository" or a similar block): a guard such as a cross-repository write hook stops Claude's own Write tool when the snippet folder sits inside another git repository, for example a `~/.claude` kept in git. The plugin's own saves are not affected. Write the text in the prompt box, type `;;`, press Up and choose "Save this draft as a snippet"; or move the global folder outside any repository with `CYBERINE_SNIPPETS_DIR` or `~/.local/share/cyberine-snippets`.
 
 ## Develop
 

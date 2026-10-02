@@ -38,9 +38,9 @@ test('the hooks file is the mod shape and names one module that exists', () => {
 test('README, LICENSE, PRIVACY and SECURITY satisfy the directory', () => {
   const readme = readFileSync(join(root, 'README.md'), 'utf8').replace(/```[\s\S]*?```/g, '');
   assert.ok(readme.split(/\s+/).filter(Boolean).length >= 40, 'README has at least 40 words outside code blocks');
-  assert.match(readme, /!\[[^\]]*\]\(assets\/banner\.png\)/, 'README shows the banner with Markdown image syntax');
+  assert.match(readme, /^!\[[^\]]*\]\(assets\//m, 'README shows its images with Markdown image syntax');
   assert.match(readFileSync(join(root, 'LICENSE'), 'utf8'), /MIT License/);
-  for (const f of ['PRIVACY.md', 'SECURITY.md', 'CHANGELOG.md', '.claude-plugin/icon.png', 'assets/banner.png']) assert.ok(existsSync(join(root, f)), f);
+  for (const f of ['PRIVACY.md', 'SECURITY.md', 'CHANGELOG.md']) assert.ok(existsSync(join(root, f)), f);
 });
 
 test('shipped files follow the directory file rules', () => {

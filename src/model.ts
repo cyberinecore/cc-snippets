@@ -203,3 +203,10 @@ export function titleFromDraft(text: string, max = 60): string {
   }
   return clean.replace(/[\s,;:.!?-]+$/, '')
 }
+
+export function isUnder(root: string | null | undefined, path: string): boolean {
+  if (!root) return false
+  if (path.split('/').some(part => part === '..' || part === '.')) return false
+  const base = root.replace(/\/+$/, '')
+  return path.startsWith(`${base}/`) && path.length > base.length + 1
+}

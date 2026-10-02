@@ -10,7 +10,7 @@
 
 # Agent credentials — the only files in this asset whose accidental commit
 #   cannot be undone without rotating a token. One line each, always worth it.
-.claude/.credentials.json
+.claude/.cred*.json
 .codex/auth.json
 .codex/.env
 .opencode/auth.json

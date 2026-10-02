@@ -1,9 +1,8 @@
-import { update } from 'claude-code'
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, Library, LoadError, Snippet, SnippetMode, SnippetSource, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
 import { BULLET, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
-import { mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
+import { isUnder, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
 import { placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 
@@ -59,6 +58,39 @@ type ApplyOutcome =
   | { kind: 'filled'; text: string; caret: number; pendingCaret: number | null }
   | { kind: 'submitted' }
   | { kind: 'refused'; reason: string }
+
+async function turnPage($: EngineInterface, delta: number, pages: number): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await $.state.get(pageRef)
+    const next = Math.max(0, Math.min(pages - 1, (cur.value ?? 0) + delta))
+    const r = await $.state.set(pageRef, next, { ifVersion: cur.version })
+    if (r.isSet) return
+  }
+}
+
+async function patchFilterState($: EngineInterface, patch: Partial<Filter>): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await $.state.get(filterRef)
+    const r = await $.state.set(filterRef, { ...(cur.value ?? ALL_FILTER), ...patch }, { ifVersion: cur.version })
+    if (r.isSet) return
+  }
+}
+
+async function setValue($: EngineInterface, name: string, value: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await $.state.get(valuesRef)
+    const r = await $.state.set(valuesRef, { ...(cur.value ?? {}), [name]: value }, { ifVersion: cur.version })
+    if (r.isSet) return
+  }
+}
+
+async function patchDraft($: EngineInterface, fallback: Draft, patch: (d: Draft) => Draft): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await $.state.get(draftRef)
+    const r = await $.state.set(draftRef, patch(cur.value ?? fallback), { ifVersion: cur.version })
+    if (r.isSet) return
+  }
+}
 
 async function getLibrary($: EngineInterface): Promise<Library | undefined> {
   return (await $.state.get(libraryRef)).value
@@ -271,7 +303,13 @@ function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-')
 }
 
+async function insideSnippetRoots($: EngineInterface, ...paths: string[]): Promise<boolean> {
+  const lib = await getLibrary($)
+  return paths.every(p => isUnder(lib?.roots.global, p) || isUnder(lib?.roots.project, p))
+}
+
 async function moveNoClobber($: EngineInterface, from: string, to: string): Promise<boolean> {
+  if (!(await insideSnippetRoots($, from, to))) return false
   await $.process.run(['mkdir', '-p', to.slice(0, to.lastIndexOf('/'))])
   const r = await $.process.run(['mv', '-n', from, to])
   return r.exitCode === 0 && !(await $.fs.exists(from)) && (await $.fs.exists(to))
@@ -279,6 +317,7 @@ async function moveNoClobber($: EngineInterface, from: string, to: string): Prom
 
 async function createExclusive($: EngineInterface, path: string, text: string): Promise<boolean> {
   const tmp = `${path.slice(0, path.lastIndexOf('/'))}/.snippet-${stamp()}.tmp`
+  if (!(await insideSnippetRoots($, path, tmp))) return false
   await $.fs.write(tmp, text)
   const isMoved = await moveNoClobber($, tmp, path)
   if (!isMoved) await $.process.run(['rm', '-f', '--', tmp])
@@ -320,6 +359,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
     const check = parseSnippet(path, text, source)
     if (!check.ok) return { ok: false, error: check.error.reason }
     if (isEdit && !(await unchangedOnDisk($, original))) return { ok: false, error: `${original.path} changed on disk since it was loaded; run /sn reload` }
+    if (!(await insideSnippetRoots($, path))) return { ok: false, error: `${path} is outside the snippet folders` }
     if (keepPath) {
       await $.fs.write(path, text)
     } else if (!(await createExclusive($, path, text))) {
@@ -433,11 +473,11 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     })()
   }
   const turn = (delta: number) => () => {
-    void update($, pageRef, p => Math.max(0, Math.min(pages - 1, (p ?? 0) + delta)))
+    void turnPage($, delta, pages)
     void $.state.set(focusedRef, null)
   }
   const patchFilter = (patch: Partial<Filter>) => {
-    void update($, filterRef, f => ({ ...(f ?? ALL_FILTER), ...patch }))
+    void patchFilterState($, patch)
     void $.state.set(pageRef, 0)
     void $.state.set(focusedRef, null)
   }
@@ -571,7 +611,7 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
           placeholder={p.default || p.name}
           value={Object.hasOwn(values, p.name) ? (values[p.name] ?? '') : ''}
           submitLabel={i === names.length - 1 ? modeLabel(mode).toLowerCase() : 'next'}
-          onInput={v => { void update($, valuesRef, cur => ({ ...(cur ?? {}), [p.name]: v })) }}
+          onInput={v => { void setValue($, p.name, v) }}
           onSubmit={advance(i)}
         />
       ))}
@@ -592,10 +632,9 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
   const error = (await $.state.get(formErrorRef)).value ?? ''
   const library = (await $.state.get(libraryRef)).value
   if (!draft) return gone($, e, 'The draft')
-  const set = (patch: Partial<Draft>) => { void update($, draftRef, cur => ({ ...(cur ?? draft), ...patch })) }
+  const set = (patch: Partial<Draft>) => { void patchDraft($, draft, d => ({ ...d, ...patch })) }
   const setTitle = (v: string) => {
-    void update($, draftRef, cur => {
-      const base = cur ?? draft
+    void patchDraft($, draft, base => {
       const isDerived = op !== 'edit' && (base.slug === '' || base.slug === shortSlug(base.title))
       return { ...base, title: v, slug: isDerived ? shortSlug(v) : base.slug }
     })

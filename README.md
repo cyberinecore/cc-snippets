@@ -109,13 +109,15 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 | `/sn list` | Print `slug - title` per snippet |
 | `/sn doctor` | Print folders, skipped files and duplicate slugs |
 
-## What it reads, writes and runs
+## What it reads, writes, runs and sends
 
-- Reads the snippet folders above, the `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables, and the prompt box draft while you apply a snippet or save an edited body. It watches the keys you type in the prompt box only to spot `;;` and to place the caret after a fill. It never reads your conversation, Claude's memory or chat history.
-- Writes snippet files you create or edit. A save checks the file has not changed on disk since it was loaded and never overwrites another snippet.
-- Runs `mkdir -p` and `mv -n` (fixed arguments, no shell) to move deleted and renamed snippets into a `.trash` folder in their snippet folder, and `rm -f` on its own temporary file if a create loses a race.
-- Keeps a per-slug usage count in the plugin's own Claude Code store to order results.
-- Sends nothing anywhere. See `PRIVACY.md`.
+- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, and `<repo root>/.claude/snippets`). It reads the `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables only to find the global folder. It reads no other file.
+- What it puts in a prompt it submits (`prompt.submit`): only the text of a snippet you picked whose `mode` is `submit`, with the placeholder values you typed, after you chose it. It never adds the content of any other file, the conversation or your draft.
+- The prompt box (`prompt.read`, `prompt.fill`): it reads the draft only to insert a snippet at your caret, to hold the draft while the `;;` picker is open, and to save a draft or an edited body as a snippet file. The draft goes back into the prompt box or into that snippet file, nowhere else. While a body edit or a held draft is active, Enter in the prompt box saves or is held back instead of sending. It never reads the conversation transcript, Claude's memory or chat history.
+- Files it writes (`fs.write`): only snippet `.md` files, and a temporary `.snippet-*.tmp` file next to them while creating one, inside the snippet folders above. Every write, move and removal is checked to stay inside those folders; it never writes build, start-up, settings or instruction files.
+- Programs it runs (`process.run`): `mkdir -p`, `mv -n` and `rm -f`, with fixed program names and no shell. The arguments are paths inside the snippet folders. Claude Code's file API has no move or delete, so these move a deleted or renamed snippet into a `.trash` folder of its snippet folder, and remove the plugin's own temporary file when a create loses a race. They send nothing anywhere.
+- What it stores: a per-slug usage count in the plugin's own Claude Code store, to order results.
+- What it sends off the machine: nothing. It has no network code. See `PRIVACY.md`.
 
 ## Troubleshooting
 

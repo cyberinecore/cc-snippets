@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Snippet } from '../types'
-import { mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft } from '../src/model'
+import { isUnder, mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft } from '../src/model'
 import { placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 import { fit, plainLine, rowColumns } from '../src/look'
@@ -233,5 +233,16 @@ describe('preview text', () => {
     expect(plainLine('**Generic CI policy for new projects**')).toBe('Generic CI policy for new projects')
     expect(plainLine('## Default behavior:')).toBe('Default behavior:')
     expect(plainLine('> use `npm test` first')).toBe('use npm test first')
+  })
+})
+
+describe('write guard', () => {
+  test('only paths strictly inside a snippet root pass', async () => {
+    expect(isUnder('/h/.claude/snippets', '/h/.claude/snippets/a.md')).toBe(true)
+    expect(isUnder('/h/.claude/snippets/', '/h/.claude/snippets/sub/.trash/a.md')).toBe(true)
+    expect(isUnder('/h/.claude/snippets', '/h/.claude/snippets')).toBe(false)
+    expect(isUnder('/h/.claude/snippets', '/h/.claude/snippets-evil/a.md')).toBe(false)
+    expect(isUnder('/h/.claude/snippets', '/h/.claude/snippets/../settings.json')).toBe(false)
+    expect(isUnder(null, '/x/a.md')).toBe(false)
   })
 })

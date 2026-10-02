@@ -1,4 +1,4 @@
-import type { Snippet, SnippetMode, SnippetSource, LoadError } from '../types'
+import type { Draft, Snippet, SnippetMode, SnippetSource, LoadError } from '../types'
 
 export type ParseResult = { ok: true; snippet: Snippet } | { ok: false; error: LoadError }
 
@@ -209,4 +209,10 @@ export function isUnder(root: string | null | undefined, path: string): boolean 
   if (path.split('/').some(part => part === '..' || part === '.')) return false
   const base = root.replace(/\/+$/, '')
   return path.startsWith(`${base}/`) && path.length > base.length + 1
+}
+
+export function applyDraftPatch(base: Draft, patch: Partial<Draft>, retitle: string | null): Draft {
+  if (retitle === null) return { ...base, ...patch }
+  const isDerived = base.slug === '' || base.slug === shortSlug(base.title)
+  return { ...base, ...patch, title: retitle, slug: isDerived ? shortSlug(retitle) : base.slug }
 }

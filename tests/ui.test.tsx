@@ -220,6 +220,20 @@ describe('manage', () => {
     await ui.unmount()
   })
 
+  test('Edit info keeps the slug when the title changes', async ($, on) => {
+    const w = world(on)
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'edit-info' })
+    await ui.input({ key: 'f:title', text: 'Plan first', kind: 'change' })
+    expect((await ui.find({ key: 'f:title' }))?.props.value).toBe('Plan first')
+    expect((await ui.find({ key: 'f:slug' }))?.props.value).toBe('multi-line')
+    await ui.press({ key: 'save' })
+    expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toMatch(/^---\ntitle: Plan first\n/)
+    await ui.unmount()
+  })
+
   test('a slug that already exists is refused, nothing is overwritten', async ($, on) => {
     const w = world(on)
     await $.command.run(run('new'))

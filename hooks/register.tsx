@@ -2,7 +2,7 @@ import type { EngineInterface, Register, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, Library, LoadError, Snippet, SnippetMode, SnippetSource, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
 import { BULLET, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
-import { isUnder, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
+import { applyDraftPatch, isUnder, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft } from '../src/model'
 import { placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
 
@@ -52,6 +52,7 @@ const HELP = [
 let isWriting = false
 
 type PaneEvent = RenderInput<'Pane', 'terminal' | 'desktop' | 'vscode'>
+type FormView = Extract<View, { screen: 'form' }>
 type Saved = { slug: string; title: string; path: string; body: string }
 type SaveResult = { ok: true; saved: Saved } | { ok: false; error: string }
 type ApplyOutcome =
@@ -84,10 +85,11 @@ async function setValue($: EngineInterface, name: string, value: string): Promis
   }
 }
 
-async function patchDraft($: EngineInterface, fallback: Draft, patch: (d: Draft) => Draft): Promise<void> {
+async function patchDraft($: EngineInterface, fallback: Draft, patch: Partial<Draft>, retitle: string | null): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const cur = await $.state.get(draftRef)
-    const r = await $.state.set(draftRef, patch(cur.value ?? fallback), { ifVersion: cur.version })
+    const next = applyDraftPatch(cur.value ?? fallback, patch, retitle)
+    const r = await $.state.set(draftRef, next, { ifVersion: cur.version })
     if (r.isSet) return
   }
 }
@@ -412,7 +414,7 @@ async function renderPane($: EngineInterface, e: PaneEvent) {
     case 'fill':
       return renderFill($, e, view.path, view.mode)
     case 'form':
-      return renderForm($, e, view.op, view.path, view.fromDraft === true)
+      return renderForm($, e, view)
     case 'delete':
       return renderDelete($, e, view.path)
     default:
@@ -626,18 +628,18 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
 const FORM_TITLE: Record<FormOp, string> = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' }
 const FIELDS = ['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body'] as const
 
-async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: string | null, fromDraft: boolean) {
+async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
+  const op = view.op
+  const path = view.path
+  const fromDraft = view.fromDraft === true
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const draft = (await $.state.get(draftRef)).value
   const error = (await $.state.get(formErrorRef)).value ?? ''
   const library = (await $.state.get(libraryRef)).value
   if (!draft) return gone($, e, 'The draft')
-  const set = (patch: Partial<Draft>) => { void patchDraft($, draft, d => ({ ...d, ...patch })) }
+  const set = (patch: Partial<Draft>) => { void patchDraft($, draft, patch, null) }
   const setTitle = (v: string) => {
-    void patchDraft($, draft, base => {
-      const isDerived = op !== 'edit' && (base.slug === '' || base.slug === shortSlug(base.title))
-      return { ...base, title: v, slug: isDerived ? shortSlug(v) : base.slug }
-    })
+    void patchDraft($, draft, { title: v }, op === 'edit' ? null : v)
   }
   const hasBodyField = op === 'new' && !fromDraft && !draft.body.includes('\n')
   const order = FIELDS.filter(k => k !== 'f:body' || hasBodyField)
@@ -645,7 +647,8 @@ async function renderForm($: EngineInterface, e: PaneEvent, op: FormOp, path: st
     const next = order[order.indexOf(key) + 1]
     void $.ui.focus({ requestId: PANE, key: next ?? 'save' })
   }
-  const cancel = () => { void go($, path ? { screen: 'detail', path } : { screen: 'list' }) }
+  const cancelView: View = path ? { screen: 'detail', path } : { screen: 'list' }
+  const cancel = () => { void go($, cancelView) }
   const save = (thenEditBody: boolean) => () => {
     void (async () => {
       const current = (await $.state.get(draftRef)).value ?? draft

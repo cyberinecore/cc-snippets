@@ -116,6 +116,13 @@ Esc closes the pane on every screen. On a short terminal the list, pager and but
 - The prompt box (`prompt.read`, `prompt.fill`): it reads the draft only to insert a snippet at your caret, to hold the draft while the `;;` picker is open, and to save a draft or an edited body as a snippet file. The draft goes back into the prompt box or into that snippet file, nowhere else. While a body edit or a held draft is active, Enter in the prompt box saves or is held back instead of sending. It never reads the conversation transcript, Claude's memory or chat history.
 - Files it writes (`fs.write`): only snippet `.md` files, and a temporary `.snippet-*.tmp` file next to them while creating one, inside the snippet folders above. Every write, move and removal is checked to stay inside those folders; it never writes build, start-up, settings or instruction files.
 - Programs it runs (`process.run`): `mkdir -p`, `mv -n` and `rm -f`, with fixed program names and no shell. The arguments are paths inside the snippet folders. Claude Code's file API has no move or delete, so these move a deleted or renamed snippet into a `.trash` folder of its snippet folder, and remove the plugin's own temporary file when a create loses a race. They send nothing anywhere.
+- Hooks it registers, and what each does:
+  - `session.start`: registers `/snippets` and `/sn` and loads the snippet folders.
+  - `command.run` for `/snippets` and `/sn`: runs the subcommands above.
+  - `ui.render` and `ui.focus` for its own pane only: draws the picker and remembers which result is focused for the preview.
+  - `ui.close`: when its own pane closes while a `;;` draft is held, puts that draft back in the prompt box. It ignores every other pane.
+  - `prompt.edit`: notices `;;` in the prompt box, and redirects the first keystroke after a fill to the `{{cursor}}` mark. Every other edit passes through unchanged.
+  - `prompt.submit`: only while you are editing a snippet body, or while the picker holds a `;;` draft, Enter in the prompt box saves the body or is held back instead of sending; every other prompt passes through unchanged.
 - What it stores: a per-slug usage count in the plugin's own Claude Code store, to order results.
 - What it sends off the machine: nothing. It has no network code. See `PRIVACY.md`.
 

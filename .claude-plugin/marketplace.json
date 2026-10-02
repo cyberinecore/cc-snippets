@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "cyberine-snippets",
+  "owner": {
+    "name": "Nia D Pham",
+    "email": "xinchao@nghia-pham.com"
+  },
+  "description": "Prompt snippet tools for Claude Code: keep saved prompts as files and insert them from the keyboard.",
+  "plugins": [
+    {
+      "name": "cyberine-snippets",
+      "source": "./",
+      "description": "Keyboard picker and manager for saved prompt snippets, with placeholders and caret placement.",
+      "category": "productivity"
+    }
+  ]
+}

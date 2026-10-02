@@ -1,0 +1,188 @@
+import { describe, expect, test } from 'claude-code/testing'
+import type { Snippet } from '../types'
+import { mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify } from '../src/model'
+import { placeholdersOf, renderBody } from '../src/placeholders'
+import { rank } from '../src/search'
+import { insertAt, redirectEdit } from '../src/caret'
+
+const snip = (over: Partial<Snippet>): Snippet => ({
+  slug: 'x',
+  title: 'X',
+  desc: '',
+  tags: [],
+  mode: 'fill',
+  body: '',
+  path: '/g/x.md',
+  source: 'global',
+  mtimeMs: 0,
+  ...over,
+})
+
+describe('frontmatter parsing', () => {
+  test('reads title, desc, inline tags, mode and body', async () => {
+    const r = parseSnippet('/g/review-diff.md', '---\ntitle: Review diff\ndesc: "Merge blockers: only"\ntags: [review, git]\nmode: submit\n---\nReview the diff.\n', 'global')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.snippet).toMatchObject({ slug: 'review-diff', title: 'Review diff', desc: 'Merge blockers: only', tags: ['review', 'git'], mode: 'submit', body: 'Review the diff.' })
+  })
+
+  test('reads block-list tags and ignores comments', async () => {
+    expect(parseFrontmatter('title: T\n# note\ntags:\n  - a\n  - "b c"')).toEqual({ title: 'T', tags: ['a', 'b c'] })
+  })
+
+  test('slug defaults to the file name without .md', async () => {
+    expect(slugFromPath('/a/b/explain-file.md')).toBe('explain-file')
+    const r = parseSnippet('/a/b/explain-file.md', '---\ntitle: Explain\n---\nbody', 'global')
+    expect(r.ok && r.snippet.slug).toBe('explain-file')
+  })
+
+  test('explicit slug wins over the file name', async () => {
+    const r = parseSnippet('/a/file.md', '---\ntitle: T\nslug: other\n---\nb', 'project')
+    expect(r.ok && r.snippet.slug).toBe('other')
+  })
+
+  test('a file without frontmatter or title is an error, not a throw', async () => {
+    const a = parseSnippet('/a/none.md', 'just text', 'global')
+    expect(a.ok).toBe(false)
+    const b = parseSnippet('/a/notitle.md', '---\ndesc: d\n---\nb', 'global')
+    expect(!b.ok && b.error.reason).toMatch(/title/)
+    const c = parseSnippet('/a/badmode.md', '---\ntitle: T\nmode: run\n---\nb', 'global')
+    expect(!c.ok && c.error.reason).toMatch(/mode/)
+    const d = parseSnippet('/a/garbage.md', '---\ntitle: T\n:::\n---\nb', 'global')
+    expect(d.ok).toBe(false)
+  })
+
+  test('serialize then parse round-trips', async () => {
+    const s = { slug: 'r', title: 'Round: trip', desc: 'd', tags: ['a', 'b'], mode: 'submit' as const, body: 'line 1\n{{who:me}}' }
+    const r = parseSnippet('/g/r.md', serializeSnippet(s, 'r'), 'global')
+    expect(r.ok && r.snippet).toMatchObject(s)
+  })
+})
+
+describe('project over global', () => {
+  test('a project snippet replaces the global one with the same slug', async () => {
+    const g = snip({ slug: 'a', title: 'Global A', source: 'global' })
+    const p = snip({ slug: 'a', title: 'Project A', source: 'project', path: '/p/a.md' })
+    const other = snip({ slug: 'b', title: 'B' })
+    const { snippets, duplicates } = mergeSources([g, other], [p])
+    expect(snippets.map(s => s.title)).toEqual(['B', 'Project A'])
+    expect(duplicates).toHaveLength(0)
+  })
+
+  test('two files with one slug in the same source are reported', async () => {
+    const { duplicates } = mergeSources([snip({ slug: 'a', path: '/g/a.md' }), snip({ slug: 'a', path: '/g/sub/a.md' })], [])
+    expect(duplicates).toHaveLength(1)
+  })
+})
+
+describe('placeholders', () => {
+  test('lists names once, keeps the first non-empty default, skips cursor', async () => {
+    expect(placeholdersOf('{{a}} {{b:two}} {{a:one}} {{cursor}}')).toEqual([
+      { name: 'a', default: 'one' },
+      { name: 'b', default: 'two' },
+    ])
+  })
+
+  test('renders values, falls back to defaults, places the cursor', async () => {
+    const r = renderBody('Hi {{name:you}}, see {{file}}.{{cursor}} Bye', { file: 'a.ts' })
+    expect(r.text).toBe('Hi you, see a.ts. Bye')
+    expect(r.cursor).toBe('Hi you, see a.ts.'.length)
+  })
+
+  test('no cursor token leaves cursor undefined', async () => {
+    expect(renderBody('plain', {}).cursor).toBeUndefined()
+  })
+})
+
+describe('search ranking', () => {
+  const list = [
+    snip({ slug: 'write-tests', title: 'Write tests', desc: 'failing first', tags: ['test'] }),
+    snip({ slug: 'review-diff', title: 'Review current diff', desc: 'merge blockers', tags: ['git'] }),
+    snip({ slug: 'explain', title: 'Explain a file', desc: 'review style walk' }),
+  ]
+
+  test('slug prefix beats a desc hit', async () => {
+    expect(rank(list, 'rev').map(s => s.slug)).toEqual(['review-diff', 'explain'])
+  })
+
+  test('every token must match', async () => {
+    expect(rank(list, 'review git').map(s => s.slug)).toEqual(['review-diff'])
+    expect(rank(list, 'zzz')).toHaveLength(0)
+  })
+
+  test('empty query orders by usage, then title', async () => {
+    expect(rank(list, '', { explain: 3, 'write-tests': 1 }).map(s => s.slug)).toEqual(['explain', 'write-tests', 'review-diff'])
+  })
+})
+
+describe('insert at caret', () => {
+  test('inserts at the caret and lands after the insert', async () => {
+    expect(insertAt({ text: 'ab', cursor: 1 }, 'XY', undefined)).toEqual({ text: 'aXYb', caret: 3 })
+  })
+
+  test('lands on the cursor token when given', async () => {
+    expect(insertAt({ text: 'ab', cursor: 2 }, 'XY', 1)).toEqual({ text: 'abXY', caret: 3 })
+  })
+
+  test('first keystroke after a fill lands at the pending cursor', async () => {
+    const pending = { text: 'fix ( ) now', cursor: 5, at: 11 }
+    expect(redirectEdit(pending, { text: pending.text, start: 11, end: 11, inputText: 'z' })).toEqual({ text: 'fix (z ) now', cursor: 6 })
+    expect(redirectEdit(pending, { text: pending.text, start: 10, end: 11, inputText: '' })).toEqual({ text: 'fix  ) now', cursor: 4 })
+    expect(redirectEdit(pending, { text: 'other', start: 5, end: 5, inputText: 'z' })).toBeUndefined()
+  })
+
+  test('redirect works when the fill landed before an existing suffix', async () => {
+    const planned = insertAt({ text: 'ab', cursor: 1 }, 'XY', 1)
+    expect(planned).toEqual({ text: 'aXYb', caret: 2 })
+    const pending = { text: 'aXYb', cursor: 2, at: 3 }
+    expect(redirectEdit(pending, { text: 'aXYb', start: 3, end: 3, inputText: 'z' })).toEqual({ text: 'aXzYb', cursor: 3 })
+  })
+})
+
+describe('frontmatter quoting round-trips', () => {
+  test('quotes, backslashes and colons survive serialize then parse', async () => {
+    const s = { slug: 'q', title: 'Say "hello": C:\\work', desc: "it's: fine", tags: ['design,review', 'plain', 'with space'], mode: 'fill' as const, body: 'b' }
+    const r = parseSnippet('/g/q.md', serializeSnippet(s, 'q'), 'global')
+    expect(r.ok && r.snippet).toMatchObject(s)
+  })
+
+  test('single-quoted values decode doubled apostrophes', async () => {
+    expect(parseFrontmatter("title: 'it''s'")).toEqual({ title: "it's" })
+  })
+
+  test('quoted commas stay inside one tag', async () => {
+    expect(parseFrontmatter('title: T\ntags: ["a,b", c]')).toEqual({ title: 'T', tags: ['a,b', 'c'] })
+  })
+
+  test('CRLF files parse and normalize the body', async () => {
+    const r = parseSnippet('/g/crlf.md', '---\r\ntitle: T\r\n---\r\nline 1\r\nline 2\r\n', 'global')
+    expect(r.ok && r.snippet.body).toBe('line 1\nline 2')
+  })
+})
+
+describe('placeholder safety', () => {
+  test('__proto__ as a placeholder name uses its default', async () => {
+    const values: Record<string, string> = Object.create(null) as Record<string, string>
+    expect(renderBody('{{__proto__:dflt}}', values).text).toBe('dflt')
+    expect(renderBody('{{__proto__:dflt}}', {}).text).toBe('dflt')
+  })
+})
+
+describe('merge keeps every file', () => {
+  test('all lists shadowed globals too', async () => {
+    const g = snip({ slug: 'a', source: 'global', path: '/g/a.md' })
+    const p = snip({ slug: 'a', source: 'project', path: '/p/a.md' })
+    const { all, snippets } = mergeSources([g], [p])
+    expect(all).toHaveLength(2)
+    expect(snippets).toHaveLength(1)
+  })
+})
+
+describe('slug from title', () => {
+  test('lower-case words joined by dashes, accents stripped', async () => {
+    expect(slugify('Summarize PR')).toBe('summarize-pr')
+    expect(slugify('  Review: the diff (v2)!  ')).toBe('review-the-diff-v2')
+    expect(slugify('Tóm tắt PR đầu tiên')).toBe('tom-tat-pr-dau-tien')
+    expect(slugify('***')).toBe('')
+  })
+})

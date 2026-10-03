@@ -15,14 +15,19 @@ function tokenScore(s: Snippet, token: string): number {
   return 0
 }
 
-export type RankOptions = { recent?: Usage; by?: SortBy }
+export type RankOptions = { recent?: Usage; by?: SortBy; pinOrder?: readonly string[] }
 
 export function rank(snippets: readonly Snippet[], query: string, usage: Usage = {}, options: RankOptions = {}): Snippet[] {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
   const recent = options.recent ?? {}
   const used = (s: Snippet) => usage[s.slug] ?? 0
   const last = (s: Snippet) => recent[s.slug] ?? 0
-  const pin = (s: Snippet) => (s.pinned ? 1 : 0)
+  const order = options.pinOrder ?? []
+  const pin = (s: Snippet) => {
+    if (!s.pinned) return Number.MAX_SAFE_INTEGER
+    const at = order.indexOf(s.path)
+    return at < 0 ? order.length : at
+  }
   const primary = options.by === 'recent' ? last : used
   const secondary = options.by === 'recent' ? used : last
   const scored: Array<{ s: Snippet; score: number }> = []
@@ -39,6 +44,16 @@ export function rank(snippets: readonly Snippet[], query: string, usage: Usage =
     }
     if (isHit) scored.push({ s, score })
   }
-  scored.sort((a, b) => b.score - a.score || pin(b.s) - pin(a.s) || primary(b.s) - primary(a.s) || secondary(b.s) - secondary(a.s) || a.s.title.localeCompare(b.s.title))
+  scored.sort((a, b) => b.score - a.score || pin(a.s) - pin(b.s) || primary(b.s) - primary(a.s) || secondary(b.s) - secondary(a.s) || a.s.title.localeCompare(b.s.title))
   return scored.map(x => x.s)
+}
+
+export function reorderPinned(full: readonly string[], visible: readonly string[], path: string, delta: -1 | 1): string[] | null {
+  const neighbor = visible[visible.indexOf(path) + delta]
+  if (!visible.includes(path) || neighbor === undefined) return null
+  const rest = full.filter(p => p !== path)
+  const at = rest.indexOf(neighbor)
+  if (at < 0) return null
+  rest.splice(delta < 0 ? at : at + 1, 0, path)
+  return rest
 }

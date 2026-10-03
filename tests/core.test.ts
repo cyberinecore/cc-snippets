@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Snippet } from '../types'
 import { cleanFolder, folderOf, isUnder, joinPath, mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
-import { rank } from '../src/search'
+import { rank, reorderPinned } from '../src/search'
 import { fit, plainLine, rowColumns } from '../src/look'
 import { insertAt, redirectEdit } from '../src/caret'
 
@@ -114,6 +114,26 @@ describe('search ranking', () => {
 
   test('empty query orders by usage, then title', async () => {
     expect(rank(list, '', { explain: 3, 'write-tests': 1 }).map(s => s.slug)).toEqual(['explain', 'write-tests', 'review-diff'])
+  })
+
+  test('pinned snippets follow the saved pin order, unlisted pins after them, then the rest', async () => {
+    const pins = [
+      snip({ slug: 'a', title: 'A', path: '/g/a.md', pinned: true }),
+      snip({ slug: 'b', title: 'B', path: '/g/b.md', pinned: true }),
+      snip({ slug: 'c', title: 'C', path: '/g/c.md', pinned: true }),
+      snip({ slug: 'd', title: 'D', path: '/g/d.md' }),
+    ]
+    expect(rank(pins, '', { d: 9 }, { pinOrder: ['/g/c.md', '/g/a.md'] }).map(s => s.slug)).toEqual(['c', 'a', 'b', 'd'])
+    expect(rank(pins, '', {}, { pinOrder: ['/g/d.md'] }).map(s => s.slug)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  test('reorderPinned moves a path past its visible neighbour and stops at the ends', async () => {
+    const full = ['/a', '/b', '/c', '/d']
+    expect(reorderPinned(full, full, '/c', -1)).toEqual(['/a', '/c', '/b', '/d'])
+    expect(reorderPinned(full, full, '/a', 1)).toEqual(['/b', '/a', '/c', '/d'])
+    expect(reorderPinned(full, ['/a', '/d'], '/d', -1)).toEqual(['/d', '/a', '/b', '/c'])
+    expect(reorderPinned(full, full, '/a', -1)).toBeNull()
+    expect(reorderPinned(full, full, '/d', 1)).toBeNull()
   })
 })
 

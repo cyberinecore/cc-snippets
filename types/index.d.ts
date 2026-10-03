@@ -74,6 +74,7 @@ declare module 'claude-code' {
       filter: Filter
       page: number
       pageSize: number
+      pinOrder: string[]
       focused: string | null
       view: View
       values: Record<string, string>

@@ -2,6 +2,11 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.5] - 2026-10-03
+
+- Pin and unpin from the list with `p` on a result, not only from Details.
+- Pinned snippets keep an order you set: `k` moves the focused pinned result up, `j` down. The order is remembered in the plugin's store and follows a snippet that is renamed or moved; a new pin goes to the end of the pinned group.
+
 ## [0.2.4] - 2026-10-03
 
 - A page of results shows 10 rows by default instead of a count derived from the pane height, and the pane asks for enough rows to fit them. `/sn rows <n>` sets the page size from 3 to 30 and remembers it.

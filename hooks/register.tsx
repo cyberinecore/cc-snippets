@@ -4,7 +4,7 @@ import { insertAt, redirectEdit } from '../src/caret'
 import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
 import { applyDraftPatch, cleanFolder, folderOf, isUnder, joinPath, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
-import { rank } from '../src/search'
+import { rank, reorderPinned } from '../src/search'
 
 const libraryRef = { plugin: 'cyberine-snippets', key: 'library' } as const
 const usageRef = { plugin: 'cyberine-snippets', key: 'usage' } as const
@@ -26,6 +26,7 @@ const sortRef = { plugin: 'cyberine-snippets', key: 'sort' } as const
 const moveRef = { plugin: 'cyberine-snippets', key: 'move' } as const
 const trashRef = { plugin: 'cyberine-snippets', key: 'trash' } as const
 const pageSizeRef = { plugin: 'cyberine-snippets', key: 'pageSize' } as const
+const pinOrderRef = { plugin: 'cyberine-snippets', key: 'pinOrder' } as const
 
 const PANE = 'snippets'
 const TOOLS_ONE_ROW = 100
@@ -38,6 +39,7 @@ const USAGE_KEY = 'usage'
 const RECENT_KEY = 'recent'
 const SORT_KEY = 'sort'
 const PAGE_SIZE_KEY = 'pageSize'
+const PIN_ORDER_KEY = 'pinOrder'
 const VALUES_KEY = 'lastValues'
 const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
@@ -229,6 +231,22 @@ async function readPageSize($: EngineInterface): Promise<number> {
   return pageSizeOf(await $.store.get(PAGE_SIZE_KEY).catch(() => undefined))
 }
 
+async function readPinOrder($: EngineInterface): Promise<string[]> {
+  const raw = await $.store.get(PIN_ORDER_KEY).catch(() => undefined)
+  return Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : []
+}
+
+async function writePinOrder($: EngineInterface, order: readonly string[]): Promise<void> {
+  const next = [...new Set(order)]
+  await $.store.set(PIN_ORDER_KEY, next)
+  await $.state.set(pinOrderRef, next)
+}
+
+async function renamePinned($: EngineInterface, from: string, to: string): Promise<void> {
+  const order = await readPinOrder($)
+  if (order.includes(from)) await writePinOrder($, order.map(p => (p === from ? to : p)))
+}
+
 async function paneRows($: EngineInterface): Promise<number> {
   return ((await $.state.get(pageSizeRef)).value ?? PAGE_SIZE.fallback) + DOCK_CHROME
 }
@@ -262,6 +280,7 @@ async function reload($: EngineInterface): Promise<Library> {
   await $.state.set(recentRef, await readNumbers($, RECENT_KEY))
   await $.state.set(sortRef, await readSort($))
   await $.state.set(pageSizeRef, await readPageSize($))
+  await $.state.set(pinOrderRef, await readPinOrder($))
   return library
 }
 
@@ -487,6 +506,7 @@ async function saveDraft($: EngineInterface, op: FormOp, originalPath: string | 
     if (isEdit && path !== original.path) {
       const isTrashed = await moveFile($, original.path, `${root}/.trash/${original.slug}.${stamp()}.md`)
       if (!isTrashed) $.ui.toast(`snippets: saved ${path}, but could not move away ${original.path}`)
+      await renamePinned($, original.path, path)
     }
     await reload($)
     return { ok: true, saved: { slug, title, path, body } }
@@ -509,7 +529,10 @@ async function deleteSnippet($: EngineInterface, path: string): Promise<string> 
 
 async function togglePin($: EngineInterface, s: Snippet): Promise<string> {
   const r = await saveDraft($, 'edit', s.path, { ...draftFrom(s, 'edit'), pinned: !s.pinned })
-  return r.ok ? '' : r.error
+  if (!r.ok) return r.error
+  const order = (await readPinOrder($)).filter(p => p !== s.path)
+  await writePinOrder($, s.pinned ? order : [...order, s.path])
+  return ''
 }
 
 async function moveSnippet($: EngineInterface, path: string, target: MoveTarget): Promise<SaveResult> {
@@ -530,6 +553,7 @@ async function moveSnippet($: EngineInterface, path: string, target: MoveTarget)
     if (!(await unchangedOnDisk($, s))) return { ok: false, error: s.path + ' changed on disk since it was loaded; run /sn reload' }
     if (await $.fs.exists(dest)) return { ok: false, error: dest + ' already exists' }
     if (!(await moveFile($, s.path, dest))) return { ok: false, error: 'Could not move ' + s.path + ' to ' + dest }
+    await renamePinned($, s.path, dest)
     await reload($)
     return { ok: true, saved: { slug: s.slug, title: s.title, path: dest, body: s.body } }
   } finally {
@@ -632,6 +656,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const filter = (await $.state.get(filterRef)).value ?? ALL_FILTER
   const page = (await $.state.get(pageRef)).value ?? 0
   const pageSize = (await $.state.get(pageSizeRef)).value ?? PAGE_SIZE.fallback
+  const pinOrder = (await $.state.get(pinOrderRef)).value ?? []
   const focused = (await $.state.get(focusedRef)).value ?? null
   const { value: held } = await $.state.get(heldRef)
   const { value: stale } = await $.state.get(staleRef)
@@ -639,7 +664,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const all = library?.snippets ?? []
   const placement = e.props.placement
   const cols = Math.max(20, e.props.bodyColumns - 1)
-  const matches = (q: string, f: Filter) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy })
+  const matches = (q: string, f: Filter, order: readonly string[] = pinOrder) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy, pinOrder: order })
   const hits = matches(query, filter)
   const toolsWrap = cols < TOOLS_ONE_ROW ? 1 : 0
   const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap + 1
@@ -682,6 +707,29 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     void $.state.set(focusedRef, null)
   }
   const openNew = () => { void startForm($, 'new', null) }
+  const settleOn = async (path: string) => {
+    const order = (await $.state.get(pinOrderRef)).value ?? []
+    const at = matches(query, filter, order).findIndex(s => s.path === path)
+    if (at >= 0) await $.state.set(pageRef, Math.floor(at / size))
+    await $.state.set(focusedRef, path)
+    await claimKeys($, 'r:' + path)
+  }
+  const pinFocused = (s: Snippet) => () => {
+    void (async () => {
+      const err = await togglePin($, s)
+      await $.state.set(noticeRef, err)
+      await settleOn(s.path)
+    })()
+  }
+  const shiftPinned = (s: Snippet, delta: -1 | 1) => () => {
+    void (async () => {
+      const full = rank(all.filter(x => x.pinned), '', usage, { recent, by: sortBy, pinOrder }).map(x => x.path)
+      const next = reorderPinned(full, hits.filter(x => x.pinned).map(x => x.path), s.path, delta)
+      if (!next) return
+      await writePinOrder($, next)
+      await settleOn(s.path)
+    })()
+  }
   const toggleSort = () => {
     void (async () => {
       const next: SortBy = sortBy === 'used' ? 'recent' : 'used'
@@ -778,8 +826,11 @@ async function renderList($: EngineInterface, e: PaneEvent) {
         <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
         {focusedHit ? <Button plain key="details" hotkey="o" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>Details</Button> : null}
         {focusedHit ? <Button plain key="list-del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>Delete</Button> : null}
+        {focusedHit ? <Button plain key="list-pin" hotkey="p" onPress={pinFocused(focusedHit)}>{focusedHit.pinned ? 'Unpin' : 'Pin'}</Button> : null}
+        {focusedHit?.pinned ? <Button plain key="pin-up" hotkey="k" onPress={shiftPinned(focusedHit, -1)}>Up</Button> : null}
+        {focusedHit?.pinned ? <Button plain key="pin-down" hotkey="j" onPress={shiftPinned(focusedHit, 1)}>Down</Button> : null}
       </Box>
-      <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete'}</Text>
+      <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete, p pin, k/j move pinned'}</Text>
     </Box>
   )
 }

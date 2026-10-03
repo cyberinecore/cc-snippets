@@ -53,7 +53,7 @@ Review the diff against {{base:main}} and report only merge blockers for {{scope
 | `desc` | no | One line shown in Details and above the preview |
 | `tags` | no | `[a, b]` or a block list; searchable and filterable |
 | `mode` | no | `fill` (default) puts the text in the prompt box; `submit` sends it to Claude at once |
-| `pin` | no | `true` puts the snippet first in the list, after the search score |
+| `pin` | no | `true` puts the snippet first in the list, after the search score; pinned snippets keep the order you give them with `k` and `j` |
 
 Placeholders in the body:
 
@@ -68,11 +68,11 @@ A file that fails to parse is skipped and listed by `/sn doctor`; it never stops
 
 ### Find and use a snippet
 
-`/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. Among equal matches, and for an empty search, pinned snippets come first, then the most used ones (or the most recently used, see Sort below).
+`/snippets` (or `/sn`) opens the pane with the search field focused. Typing filters by title, slug, tags and description; a slug segment prefix ranks high, so `ci` finds `generic-ci-policy` first. Among equal matches, and for an empty search, pinned snippets come first in the order you set, then the most used ones (or the most recently used, see Sort below).
 
-Below the search field come the results, one line each: the title, its mode, its slug, and `G` (global) or `P` (project), with `*` when pinned. Below a divider the focused snippet previews. Then sits the tools row: New, Reload, Source (all, global, project), Tag (the tags of the snippets the Source filter shows), Sort (most used or most recently used; the choice is remembered), and Details and Delete for the focused result. The bottom line shows the counts and keys.
+Below the search field come the results, one line each: the title, its mode, its slug, and `G` (global) or `P` (project), with `*` when pinned. Below a divider the focused snippet previews. Then sits the tools row: New, Reload, Source (all, global, project), Tag (the tags of the snippets the Source filter shows), Sort (most used or most recently used; the choice is remembered), and Details, Delete and Pin (or Unpin) for the focused result, plus Up and Down when it is pinned. The bottom line shows the counts and keys.
 
-Down or Tab moves from the search field to the results, so the most used snippet is one key away, and on through the tools row. Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus has left the search field, `1` to `9` apply the first nine rows, `o` opens the details of the focused result and `d` deletes it; while the search field has the focus, these keys are typed into the search.
+Down or Tab moves from the search field to the results, so the most used snippet is one key away, and on through the tools row. Enter on a result applies it, and Enter in the search field applies the top hit. Once the focus has left the search field, `1` to `9` apply the first nine rows, `o` opens the details of the focused result, `d` deletes it, `p` pins or unpins it, and on a pinned result `k` moves it up and `j` down among the pinned ones you can see; while the search field has the focus, these keys are typed into the search.
 
 A `fill` snippet lands in the prompt box and the pane closes; a second Enter then sends it to Claude as with anything you type, so review it first. A `submit` snippet is sent at once.
 
@@ -158,7 +158,7 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
   - `ui.close`: when its own pane closes while a `;;` draft is held, puts that draft back in the prompt box. It ignores every other pane.
   - `prompt.edit`: notices `;;` in the prompt box, and redirects the first keystroke after a fill to the `{{cursor}}` mark. Every other edit passes through unchanged.
   - `prompt.submit`: only while you are editing a snippet body, or while the picker holds a `;;` draft, Enter in the prompt box saves the body or is held back instead of sending; every other prompt passes through unchanged.
-- What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; the results per page; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
+- What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; the results per page; the order of pinned snippets, by file path; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
 - What it sends off the machine: nothing. It has no network code. See `PRIVACY.md`.
 
 ## Troubleshooting

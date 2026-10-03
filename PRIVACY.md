@@ -20,7 +20,7 @@ It never reads your conversation transcript, Claude's memory, chat history or su
 - Snippet files you create, edit or pin from the picker, in the snippet folders above.
 - A snippet you move or restore is copied to its new place and the original is removed with `rm`.
 - Deleted or renamed snippet files are copied into a `.trash` folder inside their snippet folder, then the original is removed with `rm`; the copies stay there until you remove them.
-- In the plugin's own Claude Code store: a usage count and the time of last use per snippet slug (to order the list), your choice of sort order, and the placeholder values you last typed for each snippet (to prefill its form next time). Placeholder values are whatever you typed, so do not put secrets into placeholders. All of it stays until you remove the plugin's store file.
+- In the plugin's own Claude Code store: a usage count and the time of last use per snippet slug (to order the list), your choice of sort order and results per page, and the placeholder values you last typed for each snippet (to prefill its form next time). Placeholder values are whatever you typed, so do not put secrets into placeholders. All of it stays until you remove the plugin's store file.
 
 ## Children
 

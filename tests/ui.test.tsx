@@ -136,7 +136,22 @@ describe('page size', () => {
     await $.command.run(run(''))
     const tiny = { ...paneProps(60, 'inline'), scroll: { offset: 0, bodyRows: 3 } }
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: tiny })
-    expect((await ui.findAll({ type: "Button" })).filter(b => (b.key ?? "").startsWith("r:"))).toHaveLength(3)
+    expect((await ui.findAll({ type: "Button" })).filter(b => (b.key ?? "").startsWith("r:"))).toHaveLength(10)
+    await ui.unmount()
+  })
+
+  test('/sn rows sets the results per page, refuses out-of-range values and survives a reload', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 20; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    expect((await $.command.run(run('rows'))).text).toMatch(/10 results per page/)
+    expect((await $.command.run(run('rows 2'))).text).toMatch(/whole number from 3 to 30/)
+    expect((await $.command.run(run('rows 31'))).text).toMatch(/whole number from 3 to 30/)
+    expect((await $.command.run(run('rows 12'))).text).toMatch(/12 results per page/)
+    await $.command.run(run('reload'))
+    await $.command.run(run(''))
+    const tall = { ...paneProps(150, 'dock'), scroll: { offset: 0, bodyRows: 40 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: tall })
+    expect((await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:'))).toHaveLength(12)
     await ui.unmount()
   })
 })

@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.4] - 2026-10-03
+
+- A page of results shows 10 rows by default instead of a count derived from the pane height, and the pane asks for enough rows to fit them. `/sn rows <n>` sets the page size from 3 to 30 and remembers it.
+
 ## [0.2.3] - 2026-10-03
 
 - The list's tools row moved back below the results and preview, so Down or Tab from the search field lands on the top hit first.

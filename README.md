@@ -78,7 +78,7 @@ A `fill` snippet lands in the prompt box and the pane closes; a second Enter the
 
 When you know the slug, `/sn <slug>!` skips the picker: the snippet is applied at once, a snippet with placeholders opens its form, and an unknown slug opens the picker filtered by that text.
 
-Esc closes the pane on every screen. When the pane is short, the preview is dropped first; when Claude Code gives the pane fewer rows than it asks for, the bottom is cut (the counts line, the tools row, then the preview and the end of the list), while the search field stays.
+A page shows 10 results by default; `/sn rows <n>` sets it from 3 to 30 and the choice is remembered, and the pane asks Claude Code for enough rows to fit that page. Esc closes the pane on every screen. When the pane is short, the preview is dropped first; when Claude Code gives the pane fewer rows than it asks for, the bottom is cut (the counts line, the tools row, then the preview and the end of the list), while the search field stays.
 
 ### Fill placeholders
 
@@ -139,6 +139,7 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
 | `/sn trash` | Restore a deleted snippet |
 | `/sn cancel` | Stop editing a snippet body in the prompt box |
 | `/sn reload` | Re-read the snippet folders |
+| `/sn rows [n]` | Print or set the results per page, 3 to 30 (default 10) |
 | `/sn list` | Print `slug - title` per snippet |
 | `/sn doctor` | Print folders, skipped files and duplicate slugs |
 | `/sn help` | Print this list |
@@ -157,7 +158,7 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
   - `ui.close`: when its own pane closes while a `;;` draft is held, puts that draft back in the prompt box. It ignores every other pane.
   - `prompt.edit`: notices `;;` in the prompt box, and redirects the first keystroke after a fill to the `{{cursor}}` mark. Every other edit passes through unchanged.
   - `prompt.submit`: only while you are editing a snippet body, or while the picker holds a `;;` draft, Enter in the prompt box saves the body or is held back instead of sending; every other prompt passes through unchanged.
-- What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
+- What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; the results per page; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
 - What it sends off the machine: nothing. It has no network code. See `PRIVACY.md`.
 
 ## Troubleshooting

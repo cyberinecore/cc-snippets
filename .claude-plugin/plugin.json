@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "cyberine-snippets",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Keyboard picker for your saved prompts: search snippet files, fill their placeholders, and drop them into the Claude Code prompt box, plus create, edit, duplicate, move, pin, delete and restore snippets without leaving the session. Snippets are plain Markdown files, not skills, so they cost the model no context until you use one.",
   "author": {
     "name": "Nia D Pham",

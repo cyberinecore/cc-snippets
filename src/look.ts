@@ -19,15 +19,22 @@ export const WIDE_MIN = 90
 
 export type Layout = { rows: number; previewLines: number; showDesc: boolean; hasMargins: boolean }
 
-const LIST_CAP = { dock: 14, inline: 4 } as const
 const MIN_LIST = 3
 
-export function layoutFor(placement: Placement, budget: number, extraRows: number): Layout {
+export const PAGE_SIZE = { fallback: 10, min: 3, max: 30 } as const
+export const DOCK_CHROME = 14
+export const INLINE_CHROME = 8
+
+export function pageSizeOf(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^[0-9]+$/.test(raw) ? Number(raw) : NaN
+  return Number.isInteger(n) && n >= PAGE_SIZE.min && n <= PAGE_SIZE.max ? n : PAGE_SIZE.fallback
+}
+
+export function layoutFor(placement: Placement, budget: number, extraRows: number, cap: number): Layout {
   const isRoomy = placement === 'dock' && budget >= 20
   const hasMargins = isRoomy
   const fixed = 1 + extraRows + 1 + 2 + (hasMargins ? 2 : 0)
   const avail = Math.max(1, budget - fixed)
-  const cap = LIST_CAP[placement]
   const wantPreview = placement === 'dock' ? (isRoomy ? 4 : 2) : 1
   const showDesc = isRoomy
   const previewBlock = 1 + wantPreview + (showDesc ? 1 : 0)

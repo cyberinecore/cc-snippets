@@ -73,6 +73,7 @@ declare module 'claude-code' {
       query: string
       filter: Filter
       page: number
+      pageSize: number
       focused: string | null
       view: View
       values: Record<string, string>

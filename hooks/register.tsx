@@ -1,7 +1,7 @@
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import { BULLET, FIELDS, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
+import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
 import { applyDraftPatch, cleanFolder, folderOf, isUnder, joinPath, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank } from '../src/search'
@@ -25,10 +25,9 @@ const recentRef = { plugin: 'cyberine-snippets', key: 'recent' } as const
 const sortRef = { plugin: 'cyberine-snippets', key: 'sort' } as const
 const moveRef = { plugin: 'cyberine-snippets', key: 'move' } as const
 const trashRef = { plugin: 'cyberine-snippets', key: 'trash' } as const
+const pageSizeRef = { plugin: 'cyberine-snippets', key: 'pageSize' } as const
 
 const PANE = 'snippets'
-const PANE_ROWS = 20
-const INLINE_BUDGET = 11
 const TOOLS_ONE_ROW = 100
 const TRIGGER = ';;'
 const SLUG_FIRST = /^[A-Za-z0-9]/
@@ -38,6 +37,7 @@ const MAX_DEPTH = 6
 const USAGE_KEY = 'usage'
 const RECENT_KEY = 'recent'
 const SORT_KEY = 'sort'
+const PAGE_SIZE_KEY = 'pageSize'
 const VALUES_KEY = 'lastValues'
 const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
@@ -63,6 +63,7 @@ const HELP = [
   '/sn trash     restore a deleted snippet',
   '/sn cancel    stop editing a snippet body in the prompt',
   '/sn reload    re-read the snippet folders',
+  '/sn rows [n]  results per page, ' + PAGE_SIZE.min + ' to ' + PAGE_SIZE.max + ' (default ' + PAGE_SIZE.fallback + ')',
   '/sn list      print slug - title per snippet',
   '/sn doctor    print folders, skipped files and duplicate slugs',
 ].join('\n')
@@ -146,13 +147,13 @@ function firstTrashKey(items: readonly TrashItem[]): string {
 
 async function backToRow($: EngineInterface, path: string): Promise<void> {
   await go($, { screen: 'list' })
-  await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
+  await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   const onRow = await $.ui.focus({ requestId: PANE, key: 'r:' + path }).catch(() => ({ deny: 'failed' }))
   if (onRow.deny !== undefined) await $.ui.focus({ requestId: PANE, key: 'q' }).catch(() => undefined)
 }
 
 async function claimKeys($: EngineInterface, key: string | null): Promise<void> {
-  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
+  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   $.ui.log(`focus: reclaim for ${key ?? 'fill form'} isPlaced=${String(r.isPlaced)}`, { to: 'debug' })
   if (key) await $.ui.focus({ requestId: PANE, key }).catch(() => undefined)
 }
@@ -224,6 +225,14 @@ async function readSort($: EngineInterface): Promise<SortBy> {
   return raw === 'recent' ? 'recent' : 'used'
 }
 
+async function readPageSize($: EngineInterface): Promise<number> {
+  return pageSizeOf(await $.store.get(PAGE_SIZE_KEY).catch(() => undefined))
+}
+
+async function paneRows($: EngineInterface): Promise<number> {
+  return ((await $.state.get(pageSizeRef)).value ?? PAGE_SIZE.fallback) + DOCK_CHROME
+}
+
 async function readLastValues($: EngineInterface): Promise<Record<string, Record<string, string>>> {
   const raw = await $.store.get(VALUES_KEY).catch(() => undefined)
   const out: Record<string, Record<string, string>> = {}
@@ -252,6 +261,7 @@ async function reload($: EngineInterface): Promise<Library> {
   await $.state.set(usageRef, await readUsage($))
   await $.state.set(recentRef, await readNumbers($, RECENT_KEY))
   await $.state.set(sortRef, await readSort($))
+  await $.state.set(pageSizeRef, await readPageSize($))
   return library
 }
 
@@ -274,7 +284,7 @@ async function openPicker($: EngineInterface, view: View, query: string): Promis
   await $.state.set(focusedRef, null)
   await $.state.set(valuesRef, {})
   await go($, view)
-  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
+  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   return { text: r.isPlaced ? undefined : 'snippets: the pane could not be placed; widen the terminal or close other dialogs' }
 }
 
@@ -292,7 +302,7 @@ async function restoreHeld($: EngineInterface, why: string): Promise<void> {
 }
 
 async function focusFromTrigger($: EngineInterface): Promise<void> {
-  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: PANE_ROWS })
+  const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   const refocusNote = 'trigger: refocus open isPlaced=' + String(r.isPlaced) + (r.isPlaced ? '' : ' reason=' + r.reason)
   $.ui.log(refocusNote, { to: 'debug' })
   if (!r.isPlaced) {
@@ -621,6 +631,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const query = (await $.state.get(queryRef)).value ?? ''
   const filter = (await $.state.get(filterRef)).value ?? ALL_FILTER
   const page = (await $.state.get(pageRef)).value ?? 0
+  const pageSize = (await $.state.get(pageSizeRef)).value ?? PAGE_SIZE.fallback
   const focused = (await $.state.get(focusedRef)).value ?? null
   const { value: held } = await $.state.get(heldRef)
   const { value: stale } = await $.state.get(staleRef)
@@ -632,7 +643,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const hits = matches(query, filter)
   const toolsWrap = cols < TOOLS_ONE_ROW ? 1 : 0
   const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap + 1
-  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : INLINE_BUDGET, extraRows)
+  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : pageSize + INLINE_CHROME, extraRows, pageSize)
   const size = layout.rows
   const pages = Math.max(1, Math.ceil(hits.length / size))
   const current = Math.min(page, pages - 1)
@@ -1098,6 +1109,16 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
       if ((library?.errors.length ?? 0) === 0 && (library?.duplicates.length ?? 0) === 0) lines.push('no problems found')
       return { text: lines.join('\n') }
     }
+    case 'rows': {
+      const want = rest[0]
+      if (!want) return { text: 'snippets: ' + (await readPageSize($)) + ' results per page; /sn rows <n> sets ' + PAGE_SIZE.min + ' to ' + PAGE_SIZE.max }
+      const n = pageSizeOf(want)
+      if (String(n) !== want) return { text: 'snippets: rows must be a whole number from ' + PAGE_SIZE.min + ' to ' + PAGE_SIZE.max }
+      await $.store.set(PAGE_SIZE_KEY, n)
+      await $.state.set(pageSizeRef, n)
+      await $.state.set(pageRef, 0)
+      return { text: 'snippets: ' + n + ' results per page' }
+    }
     case 'help':
       return { text: HELP }
     case 'cancel': {
@@ -1125,8 +1146,8 @@ export const register: Register = on => {
     await $.state.set(pendingCursorRef, null)
     await $.state.set(bodyEditRef, null)
     await $.state.set(heldRef, null)
-    await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | slug! | new | trash | cancel | reload | list | doctor | help]' })
-    await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | slug! | new | trash | cancel | reload | list | doctor | help]' })
+    await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | slug! | new | trash | cancel | reload | rows | list | doctor | help]' })
+    await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | slug! | new | trash | cancel | reload | rows | list | doctor | help]' })
     const library = await reload($)
     if (library.errors.length > 0) $.ui.toast(`snippets: ${library.errors.length} snippet file(s) skipped, run /sn doctor`)
     return next(e)

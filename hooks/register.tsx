@@ -1,7 +1,7 @@
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
-import type { Draft, Filter, FormOp, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
+import type { Draft, Filter, FormOp, InlineCap, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter } from '../src/look'
+import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter, wrappedRows } from '../src/look'
 import { applyDraftPatch, cleanFolder, folderOf, isUnder, joinPath, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank, reorderPinned } from '../src/search'
@@ -27,9 +27,10 @@ const moveRef = { plugin: 'cyberine-snippets', key: 'move' } as const
 const trashRef = { plugin: 'cyberine-snippets', key: 'trash' } as const
 const pageSizeRef = { plugin: 'cyberine-snippets', key: 'pageSize' } as const
 const pinOrderRef = { plugin: 'cyberine-snippets', key: 'pinOrder' } as const
+const inlineCapRef = { plugin: 'cyberine-snippets', key: 'inlineCap' } as const
 
 const PANE = 'snippets'
-const TOOLS_ONE_ROW = 100
+const TOOLS_GAP = 2
 const TRIGGER = ';;'
 const SLUG_FIRST = /^[A-Za-z0-9]/
 const SLUG_BAD = /[^A-Za-z0-9._-]/
@@ -302,6 +303,7 @@ async function openPicker($: EngineInterface, view: View, query: string): Promis
   await $.state.set(pageRef, 0)
   await $.state.set(focusedRef, null)
   await $.state.set(valuesRef, {})
+  await $.state.set(inlineCapRef, null)
   await go($, view)
   const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   return { text: r.isPlaced ? undefined : 'snippets: the pane could not be placed; widen the terminal or close other dialogs' }
@@ -666,9 +668,20 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const cols = Math.max(20, e.props.bodyColumns - 1)
   const matches = (q: string, f: Filter, order: readonly string[] = pinOrder) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy, pinOrder: order })
   const hits = matches(query, filter)
-  const toolsWrap = cols < TOOLS_ONE_ROW ? 1 : 0
+  const tags = [...new Set(all.filter(s => filter.source === 'all' || s.source === filter.source).flatMap(s => s.tags))].sort()
+  const toolLabels = (focus: Snippet | undefined, pinnedTools: boolean) => [
+    '[ New ]', '[ Reload ]', `[ Source: ${filter.source} ]`,
+    ...(tags.length > 0 ? [`[ Tag: ${filter.tag || 'all'} ]`] : []),
+    '[ Sort: ' + sortBy + ' ]',
+    ...(focus ? ['o: Details', 'd: Delete', focus.pinned ? 'p: Unpin' : 'p: Pin'] : []),
+    ...(pinnedTools ? ['k: Up', 'j: Down'] : []),
+  ]
+  const toolsWrap = wrappedRows(toolLabels(hits[0], hits.some(s => s.pinned)), cols, TOOLS_GAP) - 1
   const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap + 1
-  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : pageSize + INLINE_CHROME, extraRows, pageSize)
+  const viewportRows = e.viewport?.rows ?? 0
+  const cap: InlineCap | null = (await $.state.get(inlineCapRef)).value ?? null
+  const inlineRows = cap && cap.viewportRows === viewportRows ? Math.min(pageSize + INLINE_CHROME, cap.bodyRows) : pageSize + INLINE_CHROME
+  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : inlineRows, extraRows, pageSize)
   const size = layout.rows
   const pages = Math.max(1, Math.ceil(hits.length / size))
   const current = Math.min(page, pages - 1)
@@ -680,7 +693,6 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     : layout.previewLines === 1
       ? [plainLine(shortDesc(focusedHit))].filter(l => l.trim() !== '')
       : previewOf(focusedHit, layout.previewLines).filter(l => l.trim() !== '')
-  const tags = [...new Set(all.filter(s => filter.source === 'all' || s.source === filter.source).flatMap(s => s.tags))].sort()
   const errors = library?.errors.length ?? 0
   const hasProject = Boolean(library?.roots.project)
 
@@ -761,6 +773,14 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     </Box>
   ) : null
 
+  const margins = layout.hasMargins ? 2 : 0
+  const previewRows = previewText.length > 0 ? 1 + (focusedHit?.desc && layout.showDesc ? 1 : 0) + previewText.length : 0
+  const drawnRows = (stale ? 1 : 0) + (hasDraft ? 2 : 0) + 1 + margins + (shown.length || 2) + (pages > 1 ? 1 : 0) + previewRows + wrappedRows(toolLabels(focusedHit, Boolean(focusedHit?.pinned)), cols, TOOLS_GAP) + 1
+  const bodyRows = e.props.scroll.bodyRows
+  if (placement === 'inline' && all.length > 0 && bodyRows > 0 && bodyRows < drawnRows && (cap?.bodyRows !== bodyRows || cap.viewportRows !== viewportRows)) {
+    $.clock.after(0, () => { void $.state.set(inlineCapRef, { bodyRows, viewportRows }) })
+  }
+
   if (all.length === 0) {
     return (
       <Box flexDirection="column" gap={1}>
@@ -818,7 +838,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
           {previewText.map((line, i) => <Text key={`p-l${i}`} wrap="truncate-end">{line}</Text>)}
         </Box>
       ) : null}
-      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={layout.hasMargins ? 1 : 0}>
+      <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={TOOLS_GAP} marginTop={layout.hasMargins ? 1 : 0}>
         <Button plain key="new" onPress={openNew}>[ New ]</Button>
         <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
         <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>

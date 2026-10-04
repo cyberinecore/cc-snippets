@@ -140,6 +140,22 @@ describe('page size', () => {
     await ui.unmount()
   })
 
+  test('an inline pane the host draws shorter than the picker shrinks the page until it fits, so arrows move focus', async ($, on) => {
+    const w = world(on)
+    const clock = mock.clock(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const clamped = { ...paneProps(72, 'inline'), scroll: { offset: 0, bodyRows: 13 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: clamped, viewport: { columns: 76, rows: 46 } })
+    const resultRows = async () => (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:')).length
+    expect(await resultRows()).toBe(10)
+    await clock.advance(1)
+    await ui.redraw()
+    expect(await resultRows()).toBe(5)
+    expect(await ui.find({ key: 'new' })).toBeDefined()
+    await ui.unmount()
+  })
+
   test('/sn rows sets the results per page, refuses out-of-range values and survives a reload', async ($, on) => {
     const w = world(on)
     for (let i = 0; i < 20; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })

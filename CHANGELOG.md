@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.6] - 2026-10-04
+
+- On a short screen the inline picker (above the prompt) no longer gets stuck: when Claude Code gives the pane fewer rows than the picker asked for, the page shrinks until the whole picker fits, so the arrows move between results and tools again instead of scrolling a clipped pane. The limit is measured anew each time the picker opens and when the terminal height changes.
+
 ## [0.2.5] - 2026-10-03
 
 - Pin and unpin from the list with `p` on a result, not only from Details.

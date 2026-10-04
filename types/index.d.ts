@@ -65,6 +65,8 @@ export type HeldDraft = { text: string; cursor: number }
 
 export type BodyEdit = { slug: string; title: string; path: string }
 
+export type InlineCap = { bodyRows: number; viewportRows: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'cyberine-snippets': {
@@ -89,6 +91,7 @@ declare module 'claude-code' {
       sort: SortBy
       move: MoveTarget | null
       trash: TrashItem[]
+      inlineCap: InlineCap | null
     }
   }
 }

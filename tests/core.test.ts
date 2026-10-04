@@ -3,7 +3,7 @@ import type { Snippet } from '../types'
 import { cleanFolder, folderOf, isUnder, joinPath, mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank, reorderPinned } from '../src/search'
-import { fit, plainLine, rowColumns } from '../src/look'
+import { fit, plainLine, rowColumns, wrappedRows } from '../src/look'
 import { insertAt, redirectEdit } from '../src/caret'
 
 const snip = (over: Partial<Snippet>): Snippet => ({
@@ -246,6 +246,15 @@ describe('row columns', () => {
     expect(c.showMode).toBe(true)
     expect(c.title + c.slug + 6 + 1 + 6 + 1).toBeLessThanOrEqual(70)
     expect(rowColumns(50, ['x']).showMode).toBe(false)
+  })
+})
+
+describe('wrapped rows', () => {
+  test('labels wrap to a new row when the next one with its gap passes the width', async () => {
+    expect(wrappedRows([], 40, 2)).toBe(0)
+    expect(wrappedRows(['abcd', 'efgh'], 10, 2)).toBe(1)
+    expect(wrappedRows(['abcd', 'efgh'], 9, 2)).toBe(2)
+    expect(wrappedRows(['abcdefghijkl', 'x'], 10, 2)).toBe(2)
   })
 })
 

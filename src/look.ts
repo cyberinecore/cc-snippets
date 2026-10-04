@@ -100,3 +100,18 @@ export function modeLabel(mode: SnippetMode): string {
 export const FORM_TITLE: Readonly<Record<FormOp, string>> = { new: 'New snippet', edit: 'Edit info', duplicate: 'Duplicate snippet' }
 
 export const FIELDS = ['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body'] as const
+
+export function wrappedRows(labels: readonly string[], width: number, gap: number): number {
+  let rows = labels.length > 0 ? 1 : 0
+  let used = 0
+  for (const label of labels) {
+    const next = used === 0 ? label.length : used + gap + label.length
+    if (used > 0 && next > width) {
+      rows += 1
+      used = label.length
+    } else {
+      used = next
+    }
+  }
+  return rows
+}

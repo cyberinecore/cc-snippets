@@ -2,6 +2,12 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.10] - 2026-10-05
+
+- Enter on `[ Next ]`, `[ Prev ]`, `[ Tag ]` or `[ Source ]` keeps the focus on that button after the list redraws, instead of leaving it on whatever took the button's old place. `[ Next ]` on the last page hands the focus to `[ Prev ]`, and the reverse.
+- New, Edit, Duplicate, Move and Delete put their actions (`Save`, `Cancel`, `Move`, `No`, `Yes, delete`) on the heading row, above the fields, and drop the blank line. The forms are three rows shorter and fit a 30-row terminal, so Up and Down walk every field and button; in a pane shorter than the form, Up from the first field still reaches the actions.
+- These screens now report their height, so a short inline pane can learn its limit from them too.
+
 ## [0.2.9] - 2026-10-05
 
 - `k` and `j` keep the focus on the snippet they move: after a move the highlight follows the snippet to its new row, so pressing `k` or `j` again keeps moving the same snippet instead of the one that took its old place.

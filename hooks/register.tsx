@@ -50,7 +50,7 @@ const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
 const HOTKEY_ROWS = 9
 const DIRECT = '!'
-const MOVE_MARK = '#moved-'
+const REFOCUS_MARK = '#refocus-'
 const FOLDER_RULE = 'Folder: names of letters, digits, . _ - separated by /, none starting with a dot; empty is the top level'
 const ALL_FILTER: Filter = { source: 'all', tag: '' }
 
@@ -78,7 +78,7 @@ const HELP = [
 
 let isWriting = false
 let lastPaneRows = 0
-let movedRow: { path: string; n: number } | null = null
+let refocus: { key: string; n: number } | null = null
 let pinMoves: Promise<void> = Promise.resolve()
 
 type Drawn = { node: RenderElement; rows: number | null }
@@ -161,12 +161,21 @@ async function go($: EngineInterface, view: View): Promise<void> {
   if (view.screen === 'trash') await claimKeys($, firstTrashKey((await $.state.get(trashRef)).value ?? []))
 }
 
+function liveKey(key: string): string {
+  return refocus?.key === key ? key + REFOCUS_MARK + String(refocus.n) : key
+}
+
 function rowKey(path: string): string {
-  return 'r:' + path + (movedRow?.path === path ? MOVE_MARK + String(movedRow.n) : '')
+  return liveKey('r:' + path)
 }
 
 function rowPath(key: string): string {
-  return key.slice(2).split(MOVE_MARK)[0] ?? ''
+  return key.slice(2).split(REFOCUS_MARK)[0] ?? ''
+}
+
+async function refocusAfterRedraw($: EngineInterface, key: string): Promise<void> {
+  refocus = { key, n: (refocus?.n ?? 0) + 1 }
+  await claimKeys($, liveKey(key))
 }
 
 function firstTrashKey(items: readonly TrashItem[]): string {
@@ -660,11 +669,11 @@ async function drawScreen($: EngineInterface, e: PaneEvent, view: View, limit: n
     case 'fill':
       return renderFill($, e, view.path, view.mode)
     case 'form':
-      return { node: await renderForm($, e, view), rows: null }
+      return renderForm($, e, view)
     case 'delete':
-      return { node: await renderDelete($, e, view.path, view.back), rows: null }
+      return renderDelete($, e, view.path, view.back)
     case 'move':
-      return { node: await renderMove($, e, view.path), rows: null }
+      return renderMove($, e, view.path)
     case 'trash':
       return renderTrash($, e, limit)
     default:
@@ -781,13 +790,22 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
     })()
   }
   const turn = (delta: number) => () => {
-    void turnPage($, delta, pages)
-    void $.state.set(focusedRef, null)
+    void (async () => {
+      await turnPage($, delta, pages)
+      await $.state.set(focusedRef, null)
+      const now = (await $.state.get(pageRef)).value ?? 0
+      const forward = now < pages - 1
+      const back = now > 0
+      await refocusAfterRedraw($, delta > 0 ? (forward ? 'next' : 'prev') : (back ? 'prev' : 'next'))
+    })()
   }
-  const patchFilter = (patch: Partial<Filter>) => {
-    void patchFilterState($, patch)
-    void $.state.set(pageRef, 0)
-    void $.state.set(focusedRef, null)
+  const patchFilter = (patch: Partial<Filter>, from?: 'src' | 'tag') => {
+    void (async () => {
+      await patchFilterState($, patch)
+      await $.state.set(pageRef, 0)
+      await $.state.set(focusedRef, null)
+      if (from) await refocusAfterRedraw($, from)
+    })()
   }
   const openNew = () => { void startForm($, 'new', null) }
   const settleOn = async (path: string) => {
@@ -795,7 +813,7 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
     const at = matches(query, filter, order).findIndex(s => s.path === path)
     if (at >= 0) await $.state.set(pageRef, Math.floor(at / size))
     await $.state.set(focusedRef, path)
-    await claimKeys($, rowKey(path))
+    await refocusAfterRedraw($, 'r:' + path)
   }
   const pinFocused = (s: Snippet) => () => {
     void (async () => {
@@ -810,7 +828,6 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
       const full = rank(all.filter(x => x.pinned), '', usage, { recent, by: sortBy, pinOrder: order }).map(x => x.path)
       const next = reorderPinned(full, matches(query, filter, order).filter(x => x.pinned).map(x => x.path), s.path, delta)
       if (!next) return
-      movedRow = { path: s.path, n: (movedRow?.n ?? 0) + 1 }
       await writePinOrder($, next)
       await settleOn(s.path)
     }).catch((err: unknown) => { $.ui.log('pin move failed: ' + String(err), { to: 'debug' }) })
@@ -891,9 +908,9 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
       </Box>
       {pages > 1 && !compact ? (
         <Box key="pager" flexDirection="row" gap={2}>
-          {current > 0 ? <Button plain key="prev" onPress={turn(-1)}>[ Prev ]</Button> : null}
+          {current > 0 ? <Button plain key={liveKey('prev')} onPress={turn(-1)}>[ Prev ]</Button> : null}
           <Text key="pg" {...LOOK.meta}>{`page ${current + 1}/${pages}`}</Text>
-          {current < pages - 1 ? <Button plain key="next" onPress={turn(1)}>[ Next ]</Button> : null}
+          {current < pages - 1 ? <Button plain key={liveKey('next')} onPress={turn(1)}>[ Next ]</Button> : null}
         </Box>
       ) : null}
       {previewText.length > 0 ? (
@@ -904,13 +921,13 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
         </Box>
       ) : null}
       <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={TOOLS_GAP} marginTop={layout.hasMargins ? 1 : 0}>
-        {compact && pages > 1 && current > 0 ? <Button plain key="prev" onPress={turn(-1)}>[ Prev ]</Button> : null}
+        {compact && pages > 1 && current > 0 ? <Button plain key={liveKey('prev')} onPress={turn(-1)}>[ Prev ]</Button> : null}
         {compact && pages > 1 ? <Text key="pg" {...LOOK.meta}>{`page ${current + 1}/${pages}`}</Text> : null}
-        {compact && pages > 1 && current < pages - 1 ? <Button plain key="next" onPress={turn(1)}>[ Next ]</Button> : null}
+        {compact && pages > 1 && current < pages - 1 ? <Button plain key={liveKey('next')} onPress={turn(1)}>[ Next ]</Button> : null}
         <Button plain key="new" onPress={openNew}>[ New ]</Button>
         <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
-        <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
-        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{tagLabel}</Button> : null}
+        <Button plain key={liveKey('src')} onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) }, 'src')}>{`[ Source: ${filter.source} ]`}</Button>
+        {tags.length > 0 ? <Button plain key={liveKey('tag')} onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) }, 'tag')}>{tagLabel}</Button> : null}
         <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
         {focusedHit ? <Button plain key="details" hotkey="o" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>Details</Button> : null}
         {focusedHit ? <Button plain key="list-del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>Delete</Button> : null}
@@ -1036,7 +1053,7 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
 }
 
 
-async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
+async function renderForm($: EngineInterface, e: PaneEvent, view: FormView): Promise<Drawn> {
   const op = view.op
   const path = view.path
   const fromDraft = view.fromDraft === true
@@ -1044,7 +1061,7 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
   const draft = (await $.state.get(draftRef)).value
   const error = (await $.state.get(formErrorRef)).value ?? ''
   const library = (await $.state.get(libraryRef)).value
-  if (!draft) return gone($, e, 'The draft')
+  if (!draft) return drawn(null, gone($, e, 'The draft'))
   const set = (patch: Partial<Draft>) => { void patchDraft($, draft, patch, null) }
   const setTitle = (v: string) => {
     void patchDraft($, draft, { title: v }, op === 'edit' ? null : v)
@@ -1085,9 +1102,20 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
   const modeButton = '[ Mode: ' + draft.mode + ' ]'
   const saveToButton = '[ Save to: ' + draft.source + ' ]'
   const bodyLines = draft.body.split('\n').filter(l => l.trim() !== '').slice(0, 2)
-  return (
+  const cols = Math.max(20, e.props.bodyColumns - 1)
+  const varsText = varNames.length > 0 ? 'Contains placeholders: ' + varNames.join(', ') : ''
+  const bodyRows = hasBodyField ? 1 : 1 + bodyLines.length
+  const rows = 1 + 4 + bodyRows + (varsText ? 1 : 0) + 1 + (error ? textRows(error, cols) : 0)
+  return drawn(rows, (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading}>{fromDraft ? 'Save draft as snippet' : FORM_TITLE[op]}</Text>
+      <Box key="head" flexDirection="row" columnGap={2}>
+        <Box key="h-box" flexGrow={1} flexShrink={1}>
+          <Text key="h" {...LOOK.heading} wrap="truncate-end">{fromDraft ? 'Save draft as snippet' : FORM_TITLE[op]}</Text>
+        </Box>
+        <Button plain key="save" variant="primary" onPress={save(false)}>[ Save ]</Button>
+        {fromDraft ? null : <Button plain key="save-edit" onPress={save(true)}>[ Save and edit body in prompt ]</Button>}
+        <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
+      </Box>
       <Input key="f:title" label="Title " autoFocus value={draft.title} placeholder="e.g. Summarize this PR" onInput={setTitle} onSubmit={nextFrom('f:title')} />
       <Input key="f:slug" label="Slug  " value={draft.slug} placeholder={op === 'edit' ? 'required' : 'derived from the title'} onInput={v => set({ slug: v })} onSubmit={nextFrom('f:slug')} />
       <Input key="f:desc" label="Desc  " value={draft.desc} placeholder="one line, optional" onInput={v => set({ desc: v })} onSubmit={nextFrom('f:desc')} />
@@ -1100,7 +1128,7 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
           {bodyLines.map((line, i) => <Text key={'f:bl' + String(i)} {...LOOK.meta} wrap="truncate-end">{'  ' + line}</Text>)}
         </Box>
       )}
-      {varNames.length > 0 ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{'Contains placeholders: ' + varNames.join(', ')}</Text> : null}
+      {varsText ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{varsText}</Text> : null}
       <Box key="selects" flexDirection="row" columnGap={2} flexWrap="wrap">
         <Button plain key="f:mode" onPress={() => set({ mode: draft.mode === 'fill' ? 'submit' : 'fill' })}>{modeButton}</Button>
         {op !== 'edit' && library?.roots.project ? (
@@ -1108,20 +1136,15 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView) {
         ) : null}
       </Box>
       {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
-      <Box key="acts" flexDirection="row" columnGap={2} flexWrap="wrap" marginTop={1}>
-        <Button plain key="save" variant="primary" onPress={save(false)}>[ Save ]</Button>
-        {fromDraft ? null : <Button plain key="save-edit" onPress={save(true)}>[ Save and edit body in prompt ]</Button>}
-        <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
-      </Box>
     </Box>
-  )
+  ))
 }
 
-async function renderDelete($: EngineInterface, e: PaneEvent, path: string, back: 'list' | 'detail') {
+async function renderDelete($: EngineInterface, e: PaneEvent, path: string, back: 'list' | 'detail'): Promise<Drawn> {
   const { Box, Text, Button } = $.ui.resolve(e)
   const s = await byPath($, path)
   const error = (await $.state.get(formErrorRef)).value ?? ''
-  if (!s) return gone($, e, 'This snippet')
+  if (!s) return drawn(null, gone($, e, 'This snippet'))
   const keep = async () => {
     if (back === 'detail') return go($, { screen: 'detail', path })
     await go($, { screen: 'list' })
@@ -1138,27 +1161,32 @@ async function renderDelete($: EngineInterface, e: PaneEvent, path: string, back
       await go($, { screen: 'list' })
     })()
   }
-  return (
+  const cols = Math.max(20, e.props.bodyColumns - 1)
+  const note = 'The file moves to the .trash folder of its snippet root; /sn trash restores it.' + (s.source === 'project' ? ' A global snippet with the same slug, if any, shows again.' : '')
+  const rows = 1 + 1 + textRows(note, cols) + (error ? textRows(error, cols) : 0)
+  return drawn(rows, (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading} wrap="wrap">{`Delete "${s.title}"?`}</Text>
-      <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text>
-      <Text key="note" {...LOOK.meta} wrap="wrap">{'The file moves to the .trash folder of its snippet root; /sn trash restores it.' + (s.source === 'project' ? ' A global snippet with the same slug, if any, shows again.' : '')}</Text>
-      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
-      <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
+      <Box key="head" flexDirection="row" columnGap={2}>
+        <Box key="h-box" flexGrow={1} flexShrink={1}>
+          <Text key="h" {...LOOK.heading} wrap="truncate-end">{`Delete "${s.title}"?`}</Text>
+        </Box>
         <Button plain key="cancel" autoFocus hotkey="n" role="dismiss" onPress={() => { void keep() }}>No</Button>
         <Button plain key="confirm" hotkey="y" onPress={remove}>Yes, delete</Button>
       </Box>
+      <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text>
+      <Text key="note" {...LOOK.meta} wrap="wrap">{note}</Text>
+      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
     </Box>
-  )
+  ))
 }
 
-async function renderMove($: EngineInterface, e: PaneEvent, path: string) {
+async function renderMove($: EngineInterface, e: PaneEvent, path: string): Promise<Drawn> {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const s = await byPath($, path)
   const target = (await $.state.get(moveRef)).value
   const error = (await $.state.get(formErrorRef)).value ?? ''
   const lib = await getLibrary($)
-  if (!s || !target) return gone($, e, 'This snippet')
+  if (!s || !target) return drawn(null, gone($, e, 'This snippet'))
   const root = target.source === 'project' ? lib?.roots.project : lib?.roots.global
   const folder = cleanFolder(target.folder)
   const name = s.path.slice(s.path.lastIndexOf('/') + 1)
@@ -1185,19 +1213,23 @@ async function renderMove($: EngineInterface, e: PaneEvent, path: string) {
     })()
   }
   const toLabel = '[ To: ' + target.source + ' ]'
-  return (
+  const cols = Math.max(20, e.props.bodyColumns - 1)
+  const rows = 1 + 1 + (lib?.roots.project ? 1 : 0) + 1 + (error ? textRows(error, cols) : 1)
+  return drawn(rows, (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Move "' + s.title + '"'}</Text>
+      <Box key="head" flexDirection="row" columnGap={2}>
+        <Box key="h-box" flexGrow={1} flexShrink={1}>
+          <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Move "' + s.title + '"'}</Text>
+        </Box>
+        <Button plain key="m:save" variant="primary" onPress={submit}>[ Move ]</Button>
+        <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
+      </Box>
       <Text key="from" {...LOOK.meta} wrap="truncate-start">{'From ' + s.path + (here ? '  (folder ' + here + ')' : '')}</Text>
       {lib?.roots.project ? <Button plain key="m:source" onPress={() => patch({ source: target.source === 'project' ? 'global' : 'project' })}>{toLabel}</Button> : null}
       <Input key="m:folder" label="Folder " autoFocus value={target.folder} placeholder="(top level), or a/b" submitLabel="move" onInput={(v: string) => patch({ folder: v })} onSubmit={submit} />
       {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : <Text key="to" {...LOOK.meta} wrap="truncate-start">{preview ? 'To ' + preview : FOLDER_RULE}</Text>}
-      <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
-        <Button plain key="m:save" variant="primary" onPress={submit}>[ Move ]</Button>
-        <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
-      </Box>
     </Box>
-  )
+  ))
 }
 
 async function renderTrash($: EngineInterface, e: PaneEvent, limit: number | null): Promise<Drawn> {

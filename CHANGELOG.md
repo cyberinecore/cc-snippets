@@ -2,6 +2,11 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.7] - 2026-10-04
+
+- Fixes a regression in 0.2.6: after a search that narrowed the list (or matched nothing) was cleared, the inline picker stayed at one result per page until it was reopened. The pane now takes a height as its limit only when Claude Code actually cuts off the rows it last drew.
+- Dragging the inline picker taller lifts that limit again instead of keeping the smaller page until the next open.
+
 ## [0.2.6] - 2026-10-04
 
 - On a short screen the inline picker (above the prompt) no longer gets stuck: when Claude Code gives the pane fewer rows than the picker asked for, the page shrinks until the whole picker fits, so the arrows move between results and tools again instead of scrolling a clipped pane. The limit is measured anew each time the picker opens and when the terminal height changes.

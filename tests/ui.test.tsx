@@ -149,10 +149,34 @@ describe('page size', () => {
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: clamped, viewport: { columns: 76, rows: 46 } })
     const resultRows = async () => (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:')).length
     expect(await resultRows()).toBe(10)
+    await ui.redraw()
     await clock.advance(1)
     await ui.redraw()
     expect(await resultRows()).toBe(5)
     expect(await ui.find({ key: 'new' })).toBeDefined()
+    await ui.redraw({ ...clamped, scroll: { offset: 0, bodyRows: 20 } })
+    await clock.advance(1)
+    await ui.redraw({ ...clamped, scroll: { offset: 0, bodyRows: 20 } })
+    expect(await resultRows()).toBe(10)
+    await ui.unmount()
+  })
+
+  test('a frame that shrank to a short tree is not taken as the limit when the next tree is taller', async ($, on) => {
+    const w = world(on)
+    const clock = mock.clock(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const roomy = { ...paneProps(72, 'inline'), scroll: { offset: 0, bodyRows: 30 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: roomy, viewport: { columns: 76, rows: 60 } })
+    const resultRows = async () => (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:')).length
+    await ui.input({ key: 'q', text: 'zzzq', kind: 'change' })
+    expect(await resultRows()).toBe(0)
+    const shrunk = { ...roomy, scroll: { offset: 0, bodyRows: 5 } }
+    await ui.redraw(shrunk)
+    await ui.input({ key: 'q', text: '', kind: 'change' })
+    await clock.advance(1)
+    await ui.redraw(shrunk)
+    expect(await resultRows()).toBe(10)
     await ui.unmount()
   })
 

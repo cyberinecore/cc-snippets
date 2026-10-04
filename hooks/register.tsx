@@ -72,6 +72,7 @@ const HELP = [
 ].join('\n')
 
 let isWriting = false
+let lastListRows = 0
 
 type PaneEvent = RenderInput<'Pane', 'terminal' | 'desktop' | 'vscode'>
 type FormView = Extract<View, { screen: 'form' }>
@@ -304,6 +305,7 @@ async function openPicker($: EngineInterface, view: View, query: string): Promis
   await $.state.set(focusedRef, null)
   await $.state.set(valuesRef, {})
   await $.state.set(inlineCapRef, null)
+  lastListRows = 0
   await go($, view)
   const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   return { text: r.isPlaced ? undefined : 'snippets: the pane could not be placed; widen the terminal or close other dialogs' }
@@ -620,6 +622,7 @@ async function endBodyEdit($: EngineInterface): Promise<void> {
 
 async function renderPane($: EngineInterface, e: PaneEvent) {
   const view = (await $.state.get(viewRef)).value ?? { screen: 'list' }
+  if (view.screen !== 'list') lastListRows = 0
   switch (view.screen) {
     case 'detail':
       return renderDetail($, e, view.path)
@@ -777,8 +780,12 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const previewRows = previewText.length > 0 ? 1 + (focusedHit?.desc && layout.showDesc ? 1 : 0) + previewText.length : 0
   const drawnRows = (stale ? 1 : 0) + (hasDraft ? 2 : 0) + 1 + margins + (shown.length || 2) + (pages > 1 ? 1 : 0) + previewRows + wrappedRows(toolLabels(focusedHit, Boolean(focusedHit?.pinned)), cols, TOOLS_GAP) + 1
   const bodyRows = e.props.scroll.bodyRows
-  if (placement === 'inline' && all.length > 0 && bodyRows > 0 && bodyRows < drawnRows && (cap?.bodyRows !== bodyRows || cap.viewportRows !== viewportRows)) {
+  const clipsLastTree = bodyRows > 0 && bodyRows < lastListRows
+  lastListRows = placement === 'inline' ? drawnRows : 0
+  if (placement === 'inline' && all.length > 0 && clipsLastTree && bodyRows < drawnRows && (cap?.bodyRows !== bodyRows || cap.viewportRows !== viewportRows)) {
     $.clock.after(0, () => { void $.state.set(inlineCapRef, { bodyRows, viewportRows }) })
+  } else if (placement === 'inline' && cap && cap.viewportRows === viewportRows && bodyRows > cap.bodyRows) {
+    $.clock.after(0, () => { void $.state.set(inlineCapRef, null) })
   }
 
   if (all.length === 0) {

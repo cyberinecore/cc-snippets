@@ -792,6 +792,23 @@ describe('v0.2 organize and speed', () => {
     await ui.unmount()
   })
 
+  test('a pane shorter than the New form pairs Title with Slug and Desc with Tags, keeping the focus order', async ($, on) => {
+    world(on)
+    await $.command.run(run(''))
+    const short = { ...paneProps(100, 'dock'), scroll: { offset: 0, bodyRows: 5 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: short })
+    await ui.press({ key: 'new' })
+    const keys = (await ui.findAll({})).map(n => n.key ?? '').filter(k => k !== '')
+    expect(keys).toContain('f:row1')
+    expect(keys).toContain('f:row2')
+    const focusable = keys.filter(k => k.startsWith('f:') && !k.startsWith('f:row'))
+    expect(focusable).toEqual(['f:title', 'f:slug', 'f:desc', 'f:tags', 'f:body', 'f:mode'])
+    await ui.unmount()
+    const tall = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(100, 'dock') })
+    expect((await tall.findAll({})).map(n => n.key ?? '')).not.toContain('f:row1')
+    await tall.unmount()
+  })
+
   test('the Sort button switches between used and recent and remembers it', async ($, on) => {
     world(on)
     await $.command.run(run(''))

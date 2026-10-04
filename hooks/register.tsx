@@ -669,7 +669,7 @@ async function drawScreen($: EngineInterface, e: PaneEvent, view: View, limit: n
     case 'fill':
       return renderFill($, e, view.path, view.mode)
     case 'form':
-      return renderForm($, e, view)
+      return renderForm($, e, view, limit)
     case 'delete':
       return renderDelete($, e, view.path, view.back)
     case 'move':
@@ -1053,7 +1053,7 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
 }
 
 
-async function renderForm($: EngineInterface, e: PaneEvent, view: FormView): Promise<Drawn> {
+async function renderForm($: EngineInterface, e: PaneEvent, view: FormView, limit: number | null): Promise<Drawn> {
   const op = view.op
   const path = view.path
   const fromDraft = view.fromDraft === true
@@ -1104,8 +1104,20 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView): Pro
   const bodyLines = draft.body.split('\n').filter(l => l.trim() !== '').slice(0, 2)
   const cols = Math.max(20, e.props.bodyColumns - 1)
   const varsText = varNames.length > 0 ? 'Contains placeholders: ' + varNames.join(', ') : ''
-  const bodyRows = hasBodyField ? 1 : 1 + bodyLines.length
-  const rows = 1 + 4 + bodyRows + (varsText ? 1 : 0) + 1 + (error ? textRows(error, cols) : 0)
+  const errorRows = error ? textRows(error, cols) : 0
+  const fullRows = 1 + 4 + (hasBodyField ? 1 : 1 + bodyLines.length) + (varsText ? 1 : 0) + 1 + errorRows
+  const compact = limit !== null && limit < fullRows
+  const rows = compact ? 1 + 2 + 1 + 1 + errorRows : fullRows
+  const pair = (key: string, left: RenderElement, right: RenderElement) => (
+    <Box key={key} flexDirection="row" columnGap={2}>
+      <Box key={key + '-l'} width="50%" flexShrink={1} overflow="hidden">{left}</Box>
+      <Box key={key + '-r'} width="50%" flexShrink={1} overflow="hidden">{right}</Box>
+    </Box>
+  )
+  const titleField = <Input key="f:title" label="Title " autoFocus value={draft.title} placeholder="e.g. Summarize this PR" onInput={setTitle} onSubmit={nextFrom('f:title')} />
+  const slugField = <Input key="f:slug" label="Slug  " value={draft.slug} placeholder={op === 'edit' ? 'required' : 'derived from the title'} onInput={v => set({ slug: v })} onSubmit={nextFrom('f:slug')} />
+  const descField = <Input key="f:desc" label="Desc  " value={draft.desc} placeholder="one line, optional" onInput={v => set({ desc: v })} onSubmit={nextFrom('f:desc')} />
+  const tagsField = <Input key="f:tags" label="Tags  " value={draft.tags} placeholder="comma separated" onInput={v => set({ tags: v })} onSubmit={nextFrom('f:tags')} />
   return drawn(rows, (
     <Box flexDirection="column">
       <Box key="head" flexDirection="row" columnGap={2}>
@@ -1116,19 +1128,19 @@ async function renderForm($: EngineInterface, e: PaneEvent, view: FormView): Pro
         {fromDraft ? null : <Button plain key="save-edit" onPress={save(true)}>[ Save and edit body in prompt ]</Button>}
         <Button plain key="cancel" role="dismiss" onPress={cancel}>[ Cancel ]</Button>
       </Box>
-      <Input key="f:title" label="Title " autoFocus value={draft.title} placeholder="e.g. Summarize this PR" onInput={setTitle} onSubmit={nextFrom('f:title')} />
-      <Input key="f:slug" label="Slug  " value={draft.slug} placeholder={op === 'edit' ? 'required' : 'derived from the title'} onInput={v => set({ slug: v })} onSubmit={nextFrom('f:slug')} />
-      <Input key="f:desc" label="Desc  " value={draft.desc} placeholder="one line, optional" onInput={v => set({ desc: v })} onSubmit={nextFrom('f:desc')} />
-      <Input key="f:tags" label="Tags  " value={draft.tags} placeholder="comma separated" onInput={v => set({ tags: v })} onSubmit={nextFrom('f:tags')} />
+      {compact ? pair('f:row1', titleField, slugField) : titleField}
+      {compact ? null : slugField}
+      {compact ? pair('f:row2', descField, tagsField) : descField}
+      {compact ? null : tagsField}
       {hasBodyField ? (
         <Input key="f:body" label="Body  " value={draft.body} placeholder="one line here, or Save and edit body in prompt" onInput={v => set({ body: v })} onSubmit={nextFrom('f:body')} />
       ) : (
         <Box key="f:body-box" flexDirection="column">
           <Text key="f:body-info" {...LOOK.meta}>{bodyInfo}</Text>
-          {bodyLines.map((line, i) => <Text key={'f:bl' + String(i)} {...LOOK.meta} wrap="truncate-end">{'  ' + line}</Text>)}
+          {(compact ? [] : bodyLines).map((line, i) => <Text key={'f:bl' + String(i)} {...LOOK.meta} wrap="truncate-end">{'  ' + line}</Text>)}
         </Box>
       )}
-      {varsText ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{varsText}</Text> : null}
+      {varsText && !compact ? <Text key="f:vars" {...LOOK.meta} wrap="truncate-end">{varsText}</Text> : null}
       <Box key="selects" flexDirection="row" columnGap={2} flexWrap="wrap">
         <Button plain key="f:mode" onPress={() => set({ mode: draft.mode === 'fill' ? 'submit' : 'fill' })}>{modeButton}</Button>
         {op !== 'edit' && library?.roots.project ? (

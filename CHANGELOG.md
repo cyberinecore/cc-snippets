@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.11] - 2026-10-05
+
+- When the pane is shorter than the New, Edit or Duplicate form (a terminal about 22 rows tall gives a 5-row pane), the form pairs Title with Slug and Desc with Tags on one row each and hides the body preview, so it fits in five rows and Up and Down walk every field and button. The focus order is unchanged, and a taller pane keeps one field per row.
+
 ## [0.2.10] - 2026-10-05
 
 - Enter on `[ Next ]`, `[ Prev ]`, `[ Tag ]` or `[ Source ]` keeps the focus on that button after the list redraws, instead of leaving it on whatever took the button's old place. `[ Next ]` on the last page hands the focus to `[ Prev ]`, and the reverse.

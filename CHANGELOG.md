@@ -2,6 +2,11 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.9] - 2026-10-05
+
+- `k` and `j` keep the focus on the snippet they move: after a move the highlight follows the snippet to its new row, so pressing `k` or `j` again keeps moving the same snippet instead of the one that took its old place.
+- Pressing `k` or `j` several times quickly moves the snippet that many rows; before, moves made before the list redrew were lost.
+
 ## [0.2.8] - 2026-10-04
 
 - Every screen of the picker now fits the pane on a short screen, so the arrows move between items instead of scrolling a clipped pane. The height limit Claude Code gives an inline pane is learned for the whole pane, not only the list.

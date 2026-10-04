@@ -673,7 +673,8 @@ describe('v0.2 organize and speed', () => {
     const w = world(on)
     await $.command.run(run(''))
     let ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(150, 'dock') })
-    const order = async () => (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:')).map(b => (b.key ?? '').slice(2))
+    const rowKeys = async () => (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(k => k.startsWith('r:'))
+    const order = async () => (await rowKeys()).map(k => k.slice(2).split('#moved-')[0])
     const tests = `${ROOT}/sub/write-tests.md`
     const review = `${ROOT}/review-diff.md`
     await ui.input({ key: 'q', text: 'write', kind: 'change' })
@@ -685,8 +686,11 @@ describe('v0.2 organize and speed', () => {
     expect(w.files.get(review)?.text).toMatch(/pin: true/)
     await ui.input({ key: 'q', text: '', kind: 'change' })
     expect((await order()).slice(0, 2)).toEqual([tests, review])
+    const keyBefore = (await rowKeys())[0]
     await ui.press({ key: 'pin-down' })
     expect((await order()).slice(0, 2)).toEqual([review, tests])
+    const movedKey = (await rowKeys())[1]
+    expect(movedKey).not.toBe(keyBefore)
     await ui.press({ key: 'pin-down' })
     expect((await order()).slice(0, 2)).toEqual([review, tests])
     await ui.press({ key: 'pin-up' })

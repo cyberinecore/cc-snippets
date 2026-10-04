@@ -50,6 +50,7 @@ const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
 const HOTKEY_ROWS = 9
 const DIRECT = '!'
+const MOVE_MARK = '#moved-'
 const FOLDER_RULE = 'Folder: names of letters, digits, . _ - separated by /, none starting with a dot; empty is the top level'
 const ALL_FILTER: Filter = { source: 'all', tag: '' }
 
@@ -77,6 +78,8 @@ const HELP = [
 
 let isWriting = false
 let lastPaneRows = 0
+let movedRow: { path: string; n: number } | null = null
+let pinMoves: Promise<void> = Promise.resolve()
 
 type Drawn = { node: RenderElement; rows: number | null }
 
@@ -158,6 +161,14 @@ async function go($: EngineInterface, view: View): Promise<void> {
   if (view.screen === 'trash') await claimKeys($, firstTrashKey((await $.state.get(trashRef)).value ?? []))
 }
 
+function rowKey(path: string): string {
+  return 'r:' + path + (movedRow?.path === path ? MOVE_MARK + String(movedRow.n) : '')
+}
+
+function rowPath(key: string): string {
+  return key.slice(2).split(MOVE_MARK)[0] ?? ''
+}
+
 function firstTrashKey(items: readonly TrashItem[]): string {
   const first = items[0]
   return first ? 't:' + first.path : 'trash-back'
@@ -166,7 +177,7 @@ function firstTrashKey(items: readonly TrashItem[]): string {
 async function backToRow($: EngineInterface, path: string): Promise<void> {
   await go($, { screen: 'list' })
   await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
-  const onRow = await $.ui.focus({ requestId: PANE, key: 'r:' + path }).catch(() => ({ deny: 'failed' }))
+  const onRow = await $.ui.focus({ requestId: PANE, key: rowKey(path) }).catch(() => ({ deny: 'failed' }))
   if (onRow.deny !== undefined) await $.ui.focus({ requestId: PANE, key: 'q' }).catch(() => undefined)
 }
 
@@ -784,7 +795,7 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
     const at = matches(query, filter, order).findIndex(s => s.path === path)
     if (at >= 0) await $.state.set(pageRef, Math.floor(at / size))
     await $.state.set(focusedRef, path)
-    await claimKeys($, 'r:' + path)
+    await claimKeys($, rowKey(path))
   }
   const pinFocused = (s: Snippet) => () => {
     void (async () => {
@@ -794,13 +805,15 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
     })()
   }
   const shiftPinned = (s: Snippet, delta: -1 | 1) => () => {
-    void (async () => {
-      const full = rank(all.filter(x => x.pinned), '', usage, { recent, by: sortBy, pinOrder }).map(x => x.path)
-      const next = reorderPinned(full, hits.filter(x => x.pinned).map(x => x.path), s.path, delta)
+    pinMoves = pinMoves.then(async () => {
+      const order = (await $.state.get(pinOrderRef)).value ?? []
+      const full = rank(all.filter(x => x.pinned), '', usage, { recent, by: sortBy, pinOrder: order }).map(x => x.path)
+      const next = reorderPinned(full, matches(query, filter, order).filter(x => x.pinned).map(x => x.path), s.path, delta)
       if (!next) return
+      movedRow = { path: s.path, n: (movedRow?.n ?? 0) + 1 }
       await writePinOrder($, next)
       await settleOn(s.path)
-    })()
+    }).catch((err: unknown) => { $.ui.log('pin move failed: ' + String(err), { to: 'debug' }) })
   }
   const toggleSort = () => {
     void (async () => {
@@ -868,7 +881,7 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
         {shown.map((s, i) => (
           <Box key={`row-${s.path}`} flexDirection="row" columnGap={2}>
             <Box key={`t-${s.path}`} flexGrow={1}>
-              {i < HOTKEY_ROWS ? <Button key={`r:${s.path}`} plain hotkey={String(i + 1)} onPress={() => { void choose($, s.path) }}>{fit(s.title, col.title - 1)}</Button> : <Button key={`r:${s.path}`} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>}
+              {i < HOTKEY_ROWS ? <Button key={rowKey(s.path)} plain hotkey={String(i + 1)} onPress={() => { void choose($, s.path) }}>{fit(s.title, col.title - 1)}</Button> : <Button key={rowKey(s.path)} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>}
             </Box>
             {col.showMode ? <Text key={`mo:${s.path}`} {...LOOK.meta}>{s.mode.padEnd(6)}</Text> : null}
             <Text key={`sl:${s.path}`} {...LOOK.accent}>{padStartCells(fit(s.slug, col.slug), col.slug)}</Text>
@@ -1343,7 +1356,7 @@ export const register: Register = on => {
     const key = e.element ?? ''
     if (key.startsWith('r:')) {
       const { value: view } = await $.state.get(viewRef)
-      if (!view || view.screen === 'list') await $.state.set(focusedRef, key.slice(2))
+      if (!view || view.screen === 'list') await $.state.set(focusedRef, rowPath(key))
     }
     return next(e)
   })

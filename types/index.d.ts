@@ -92,6 +92,7 @@ declare module 'claude-code' {
       move: MoveTarget | null
       trash: TrashItem[]
       inlineCap: InlineCap | null
+      trashPage: number
     }
   }
 }

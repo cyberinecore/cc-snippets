@@ -78,7 +78,7 @@ A `fill` snippet lands in the prompt box and the pane closes; a second Enter the
 
 When you know the slug, `/sn <slug>!` skips the picker: the snippet is applied at once, a snippet with placeholders opens its form, and an unknown slug opens the picker filtered by that text.
 
-A page shows 10 results by default; `/sn rows <n>` sets it from 3 to 30 and the choice is remembered, and the pane asks Claude Code for enough rows to fit that page. Esc closes the pane on every screen. When the pane is short, the preview is dropped first; when Claude Code gives the pane fewer rows than it asks for, the bottom is cut (the counts line, the tools row, then the preview and the end of the list), while the search field stays.
+A page shows 10 results by default; `/sn rows <n>` sets it from 3 to 30 and the choice is remembered, and the pane asks Claude Code for enough rows to fit that page. Esc closes the pane on every screen. When the pane is short, the preview is dropped first. When Claude Code gives the pane fewer rows than it asks for, which happens above the prompt on a short screen, the page shrinks until the whole picker fits, so the arrows keep moving between results and tools; if even that is too tall, the counts line is dropped and the page buttons join the tools row. Details of a long snippet show as much of the body as fits and say how many lines are hidden, with the actions always visible.
 
 ### Fill placeholders
 
@@ -118,7 +118,7 @@ Delete, from Details (`d`), from the Delete button, or with `d` on a result row,
 
 ![Delete asks first, with No focused](assets/screenshot-delete-confirm.png)
 
-`/sn trash` lists what is in the `.trash` folders, newest first (up to 15 shown). Enter on one restores it to the top of its snippet folder as `<slug>.md`; if that file already exists, the restore is refused and nothing is overwritten.
+`/sn trash` lists what is in the `.trash` folders, newest first, in pages that fit the pane (up to 15 per page). Enter on one restores it to the top of its snippet folder as `<slug>.md`; if that file already exists, the restore is refused and nothing is overwritten.
 
 Edits, renames, moves and deletes refuse a file that changed on disk since it was loaded; reload and repeat.
 

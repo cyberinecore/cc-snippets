@@ -2,6 +2,15 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.8] - 2026-10-04
+
+- Every screen of the picker now fits the pane on a short screen, so the arrows move between items instead of scrolling a clipped pane. The height limit Claude Code gives an inline pane is learned for the whole pane, not only the list.
+- The list has a compact form when even its smallest layout is too tall: the hint line is dropped and the page buttons join the tools row.
+- Details of a long snippet show as much of the body as fits, with a line saying how many lines are hidden; `e` opens the whole body in the prompt. The title and the actions stay visible.
+- Trash pages through every trashed file by the rows the pane has, instead of listing only the newest 15.
+- The fill form keeps `Fill prompt` and `Back` on its heading row, so they stay reachable with many placeholders.
+- Widths are counted in terminal cells: CJK text and most emoji take two cells, so titles, slugs and the tools row line up; a long tag is cut in the Tag button.
+
 ## [0.2.7] - 2026-10-04
 
 - Fixes a regression in 0.2.6: after a search that narrowed the list (or matched nothing) was cleared, the inline picker stayed at one result per page until it was reopened. The pane now takes a height as its limit only when Claude Code actually cuts off the rows it last drew.

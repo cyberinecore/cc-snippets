@@ -1,7 +1,8 @@
-import type { EngineInterface, Register, RenderInput } from 'claude-code'
+import type { EngineInterface, Register, RenderElement, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, InlineCap, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter, wrappedRows } from '../src/look'
+import type { Layout } from '../src/look'
+import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter, padStartCells, textRows, wrappedRows } from '../src/look'
 import { applyDraftPatch, cleanFolder, folderOf, isUnder, joinPath, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank, reorderPinned } from '../src/search'
@@ -28,9 +29,12 @@ const trashRef = { plugin: 'cyberine-snippets', key: 'trash' } as const
 const pageSizeRef = { plugin: 'cyberine-snippets', key: 'pageSize' } as const
 const pinOrderRef = { plugin: 'cyberine-snippets', key: 'pinOrder' } as const
 const inlineCapRef = { plugin: 'cyberine-snippets', key: 'inlineCap' } as const
+const trashPageRef = { plugin: 'cyberine-snippets', key: 'trashPage' } as const
 
 const PANE = 'snippets'
 const TOOLS_GAP = 2
+const TAG_LABEL_CELLS = 20
+const DETAIL_MIN_BODY = 3
 const TRIGGER = ';;'
 const SLUG_FIRST = /^[A-Za-z0-9]/
 const SLUG_BAD = /[^A-Za-z0-9._-]/
@@ -72,7 +76,17 @@ const HELP = [
 ].join('\n')
 
 let isWriting = false
-let lastListRows = 0
+let lastPaneRows = 0
+
+type Drawn = { node: RenderElement; rows: number | null }
+
+function drawn(rows: number | null, node: RenderElement): Drawn {
+  return { node, rows }
+}
+
+function pagerLabels(pages: number, current: number): string[] {
+  return [...(current > 0 ? ['[ Prev ]'] : []), `page ${current + 1}/${pages}`, ...(current < pages - 1 ? ['[ Next ]'] : [])]
+}
 
 type PaneEvent = RenderInput<'Pane', 'terminal' | 'desktop' | 'vscode'>
 type FormView = Extract<View, { screen: 'form' }>
@@ -305,7 +319,8 @@ async function openPicker($: EngineInterface, view: View, query: string): Promis
   await $.state.set(focusedRef, null)
   await $.state.set(valuesRef, {})
   await $.state.set(inlineCapRef, null)
-  lastListRows = 0
+  await $.state.set(trashPageRef, 0)
+  lastPaneRows = 0
   await go($, view)
   const r = await $.ui.open({ id: PANE, title: 'Snippets', focus: true, closeOnEscape: true, holdToasts: true, rows: await paneRows($) })
   return { text: r.isPlaced ? undefined : 'snippets: the pane could not be placed; widen the terminal or close other dialogs' }
@@ -620,28 +635,56 @@ async function endBodyEdit($: EngineInterface): Promise<void> {
   $.ui.status(undefined)
 }
 
-async function renderPane($: EngineInterface, e: PaneEvent) {
-  const view = (await $.state.get(viewRef)).value ?? { screen: 'list' }
-  if (view.screen !== 'list') lastListRows = 0
+async function paneLimit($: EngineInterface, e: PaneEvent): Promise<number | null> {
+  const bodyRows = e.props.scroll.bodyRows
+  if (e.props.placement === 'dock') return bodyRows > 0 ? bodyRows : null
+  const cap = (await $.state.get(inlineCapRef)).value ?? null
+  return cap && cap.viewportRows === (e.viewport?.rows ?? 0) ? cap.bodyRows : null
+}
+
+async function drawScreen($: EngineInterface, e: PaneEvent, view: View, limit: number | null): Promise<Drawn> {
   switch (view.screen) {
     case 'detail':
-      return renderDetail($, e, view.path)
+      return renderDetail($, e, view.path, limit)
     case 'fill':
       return renderFill($, e, view.path, view.mode)
     case 'form':
-      return renderForm($, e, view)
+      return { node: await renderForm($, e, view), rows: null }
     case 'delete':
-      return renderDelete($, e, view.path, view.back)
+      return { node: await renderDelete($, e, view.path, view.back), rows: null }
     case 'move':
-      return renderMove($, e, view.path)
+      return { node: await renderMove($, e, view.path), rows: null }
     case 'trash':
-      return renderTrash($, e)
+      return renderTrash($, e, limit)
     default:
-      return renderList($, e)
+      return renderList($, e, limit)
   }
 }
 
-function gone($: EngineInterface, e: PaneEvent, what: string) {
+async function renderPane($: EngineInterface, e: PaneEvent) {
+  const view = (await $.state.get(viewRef)).value ?? { screen: 'list' }
+  const drawn = await drawScreen($, e, view, await paneLimit($, e))
+  learnInlineLimit($, e, drawn.rows, (await $.state.get(inlineCapRef)).value ?? null)
+  return drawn.node
+}
+
+function learnInlineLimit($: EngineInterface, e: PaneEvent, rows: number | null, cap: InlineCap | null): void {
+  if (e.props.placement !== 'inline') {
+    lastPaneRows = 0
+    return
+  }
+  const bodyRows = e.props.scroll.bodyRows
+  const viewportRows = e.viewport?.rows ?? 0
+  const clipsLastTree = bodyRows > 0 && bodyRows < lastPaneRows
+  lastPaneRows = rows ?? 0
+  if (clipsLastTree && rows !== null && bodyRows < rows && (cap?.bodyRows !== bodyRows || cap.viewportRows !== viewportRows)) {
+    $.clock.after(0, () => { void $.state.set(inlineCapRef, { bodyRows, viewportRows }) })
+  } else if (cap && cap.viewportRows === viewportRows && bodyRows > cap.bodyRows) {
+    $.clock.after(0, () => { void $.state.set(inlineCapRef, null) })
+  }
+}
+
+function gone($: EngineInterface, e: PaneEvent, what: string): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(e)
   return (
     <Box flexDirection="column">
@@ -651,7 +694,7 @@ function gone($: EngineInterface, e: PaneEvent, what: string) {
   )
 }
 
-async function renderList($: EngineInterface, e: PaneEvent) {
+async function renderList($: EngineInterface, e: PaneEvent, limit: number | null): Promise<Drawn> {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const library = (await $.state.get(libraryRef)).value
   const usage = (await $.state.get(usageRef)).value ?? {}
@@ -672,30 +715,44 @@ async function renderList($: EngineInterface, e: PaneEvent) {
   const matches = (q: string, f: Filter, order: readonly string[] = pinOrder) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy, pinOrder: order })
   const hits = matches(query, filter)
   const tags = [...new Set(all.filter(s => filter.source === 'all' || s.source === filter.source).flatMap(s => s.tags))].sort()
+  const tagLabel = '[ Tag: ' + fit((filter.tag || 'all').replace(/\s+/g, ' '), TAG_LABEL_CELLS) + ' ]'
   const toolLabels = (focus: Snippet | undefined, pinnedTools: boolean) => [
     '[ New ]', '[ Reload ]', `[ Source: ${filter.source} ]`,
-    ...(tags.length > 0 ? [`[ Tag: ${filter.tag || 'all'} ]`] : []),
+    ...(tags.length > 0 ? [tagLabel] : []),
     '[ Sort: ' + sortBy + ' ]',
     ...(focus ? ['o: Details', 'd: Delete', focus.pinned ? 'p: Unpin' : 'p: Pin'] : []),
     ...(pinnedTools ? ['k: Up', 'j: Down'] : []),
   ]
+  const draftRows = held && held.text.trim() ? 2 : 0
+  const topRows = (stale ? 1 : 0) + draftRows + 1
   const toolsWrap = wrappedRows(toolLabels(hits[0], hits.some(s => s.pinned)), cols, TOOLS_GAP) - 1
-  const extraRows = (held && held.text.trim() ? 2 : 0) + (stale ? 1 : 0) + toolsWrap + 1
-  const viewportRows = e.viewport?.rows ?? 0
-  const cap: InlineCap | null = (await $.state.get(inlineCapRef)).value ?? null
-  const inlineRows = cap && cap.viewportRows === viewportRows ? Math.min(pageSize + INLINE_CHROME, cap.bodyRows) : pageSize + INLINE_CHROME
-  const layout = layoutFor(placement, placement === 'dock' ? e.props.scroll.bodyRows : inlineRows, extraRows, pageSize)
-  const size = layout.rows
-  const pages = Math.max(1, Math.ceil(hits.length / size))
-  const current = Math.min(page, pages - 1)
-  const shown = hits.slice(current * size, current * size + size)
-  const focusedHit = hits.find(s => s.path === focused) ?? shown[0]
+  const extraRows = draftRows + (stale ? 1 : 0) + toolsWrap + 1
+  const budget = placement === 'dock' ? e.props.scroll.bodyRows : Math.min(pageSize + INLINE_CHROME, limit ?? Infinity)
+  const planFor = (layout: Layout, compact: boolean) => {
+    const size = layout.rows
+    const pages = Math.max(1, Math.ceil(hits.length / size))
+    const current = Math.min(page, pages - 1)
+    const shown = hits.slice(current * size, current * size + size)
+    const focusedHit = hits.find(s => s.path === focused) ?? shown[0]
+    const previewText = !focusedHit || layout.previewLines === 0
+      ? []
+      : layout.previewLines === 1
+        ? [plainLine(shortDesc(focusedHit))].filter(l => l.trim() !== '')
+        : previewOf(focusedHit, layout.previewLines).filter(l => l.trim() !== '')
+    const pager = compact && pages > 1 ? pagerLabels(pages, current) : []
+    const toolRows = wrappedRows([...pager, ...toolLabels(focusedHit, Boolean(focusedHit?.pinned))], cols, TOOLS_GAP)
+    const previewRows = previewText.length > 0 ? 1 + (focusedHit?.desc && layout.showDesc ? 1 : 0) + previewText.length : 0
+    const rows = topRows + (layout.hasMargins ? 2 : 0) + (shown.length || 2) + (!compact && pages > 1 ? 1 : 0) + previewRows + toolRows + (compact ? 0 : 1)
+    return { layout, compact, size, pages, current, shown, focusedHit, previewText, rows }
+  }
+  let plan = planFor(layoutFor(placement, budget, extraRows, pageSize), false)
+  if (limit !== null && plan.rows > limit) {
+    const worstTools = wrappedRows([...pagerLabels(99, 1), ...toolLabels(hits[0], hits.some(s => s.pinned))], cols, TOOLS_GAP)
+    const rows = Math.max(1, Math.min(pageSize, limit - topRows - worstTools))
+    plan = planFor({ rows, previewLines: 0, showDesc: false, hasMargins: false }, true)
+  }
+  const { layout, compact, size, pages, current, shown, focusedHit, previewText } = plan
   const col = rowColumns(cols, shown.map(s => s.slug))
-  const previewText = !focusedHit || layout.previewLines === 0
-    ? []
-    : layout.previewLines === 1
-      ? [plainLine(shortDesc(focusedHit))].filter(l => l.trim() !== '')
-      : previewOf(focusedHit, layout.previewLines).filter(l => l.trim() !== '')
   const errors = library?.errors.length ?? 0
   const hasProject = Boolean(library?.roots.project)
 
@@ -776,20 +833,8 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     </Box>
   ) : null
 
-  const margins = layout.hasMargins ? 2 : 0
-  const previewRows = previewText.length > 0 ? 1 + (focusedHit?.desc && layout.showDesc ? 1 : 0) + previewText.length : 0
-  const drawnRows = (stale ? 1 : 0) + (hasDraft ? 2 : 0) + 1 + margins + (shown.length || 2) + (pages > 1 ? 1 : 0) + previewRows + wrappedRows(toolLabels(focusedHit, Boolean(focusedHit?.pinned)), cols, TOOLS_GAP) + 1
-  const bodyRows = e.props.scroll.bodyRows
-  const clipsLastTree = bodyRows > 0 && bodyRows < lastListRows
-  lastListRows = placement === 'inline' ? drawnRows : 0
-  if (placement === 'inline' && all.length > 0 && clipsLastTree && bodyRows < drawnRows && (cap?.bodyRows !== bodyRows || cap.viewportRows !== viewportRows)) {
-    $.clock.after(0, () => { void $.state.set(inlineCapRef, { bodyRows, viewportRows }) })
-  } else if (placement === 'inline' && cap && cap.viewportRows === viewportRows && bodyRows > cap.bodyRows) {
-    $.clock.after(0, () => { void $.state.set(inlineCapRef, null) })
-  }
-
   if (all.length === 0) {
-    return (
+    return drawn(null,
       <Box flexDirection="column" gap={1}>
         <Text key="empty" {...LOOK.heading}>No snippets yet</Text>
         {saveDraftButton}
@@ -805,7 +850,7 @@ async function renderList($: EngineInterface, e: PaneEvent) {
     )
   }
 
-  return (
+  return drawn(plan.rows, (
     <Box flexDirection="column" paddingRight={1}>
       {staleRow}
       {saveDraftButton}
@@ -826,12 +871,12 @@ async function renderList($: EngineInterface, e: PaneEvent) {
               {i < HOTKEY_ROWS ? <Button key={`r:${s.path}`} plain hotkey={String(i + 1)} onPress={() => { void choose($, s.path) }}>{fit(s.title, col.title - 1)}</Button> : <Button key={`r:${s.path}`} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>}
             </Box>
             {col.showMode ? <Text key={`mo:${s.path}`} {...LOOK.meta}>{s.mode.padEnd(6)}</Text> : null}
-            <Text key={`sl:${s.path}`} {...LOOK.accent}>{fit(s.slug, col.slug).padStart(col.slug)}</Text>
+            <Text key={`sl:${s.path}`} {...LOOK.accent}>{padStartCells(fit(s.slug, col.slug), col.slug)}</Text>
             <Text key={`b:${s.path}`} {...LOOK.badge}>{sourceLetter(s) + (s.pinned ? PIN_MARK : ' ')}</Text>
           </Box>
         ))}
       </Box>
-      {pages > 1 ? (
+      {pages > 1 && !compact ? (
         <Box key="pager" flexDirection="row" gap={2}>
           {current > 0 ? <Button plain key="prev" onPress={turn(-1)}>[ Prev ]</Button> : null}
           <Text key="pg" {...LOOK.meta}>{`page ${current + 1}/${pages}`}</Text>
@@ -846,10 +891,13 @@ async function renderList($: EngineInterface, e: PaneEvent) {
         </Box>
       ) : null}
       <Box key="tools" flexDirection="row" flexWrap="wrap" columnGap={TOOLS_GAP} marginTop={layout.hasMargins ? 1 : 0}>
+        {compact && pages > 1 && current > 0 ? <Button plain key="prev" onPress={turn(-1)}>[ Prev ]</Button> : null}
+        {compact && pages > 1 ? <Text key="pg" {...LOOK.meta}>{`page ${current + 1}/${pages}`}</Text> : null}
+        {compact && pages > 1 && current < pages - 1 ? <Button plain key="next" onPress={turn(1)}>[ Next ]</Button> : null}
         <Button plain key="new" onPress={openNew}>[ New ]</Button>
         <Button plain key="reload" onPress={reloadNow}>[ Reload ]</Button>
         <Button plain key="src" onPress={() => patchFilter({ source: nextSource(filter.source, hasProject) })}>{`[ Source: ${filter.source} ]`}</Button>
-        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{`[ Tag: ${filter.tag || 'all'} ]`}</Button> : null}
+        {tags.length > 0 ? <Button plain key="tag" onPress={() => patchFilter({ tag: nextTag(filter.tag, tags) })}>{tagLabel}</Button> : null}
         <Button plain key="sort" onPress={toggleSort}>{'[ Sort: ' + sortBy + ' ]'}</Button>
         {focusedHit ? <Button plain key="details" hotkey="o" onPress={() => { void go($, { screen: 'detail', path: focusedHit.path }) }}>Details</Button> : null}
         {focusedHit ? <Button plain key="list-del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: focusedHit.path, back: 'list' }) }}>Delete</Button> : null}
@@ -857,15 +905,15 @@ async function renderList($: EngineInterface, e: PaneEvent) {
         {focusedHit?.pinned ? <Button plain key="pin-up" hotkey="k" onPress={shiftPinned(focusedHit, -1)}>Up</Button> : null}
         {focusedHit?.pinned ? <Button plain key="pin-down" hotkey="j" onPress={shiftPinned(focusedHit, 1)}>Down</Button> : null}
       </Box>
-      <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete, p pin, k/j move pinned'}</Text>
+      {compact ? null : <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete, p pin, k/j move pinned'}</Text>}
     </Box>
-  )
+  ))
 }
 
-async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
+async function renderDetail($: EngineInterface, e: PaneEvent, path: string, limit: number | null): Promise<Drawn> {
   const { Box, Text, Button } = $.ui.resolve(e)
   const s = await byPath($, path)
-  if (!s) return gone($, e, 'This snippet')
+  if (!s) return drawn(null, gone($, e, 'This snippet'))
   const names = placeholdersOf(s.body)
   const back = () => { void backToRow($, s.path) }
   const error = (await $.state.get(formErrorRef)).value ?? ''
@@ -884,15 +932,43 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
       await claimKeys($, 'pin')
     })()
   }
-  return (
+  const cols = Math.max(20, e.props.bodyColumns)
+  const metaText = metaLine(s) + (s.pinned ? ' | pinned' : '') + (s.tags.length ? ' | ' + s.tags.join(', ') : '')
+  const varsText = names.length > 0 ? 'Placeholders: ' + names.map(p => (p.default ? p.name + '=' + p.default : p.name)).join(', ') : ''
+  const bodyLines = s.body.split('\n')
+  const useLabels = [`[ ${modeLabel(s.mode)} ]`, `a: ${modeLabel(otherMode(s.mode))} instead`]
+  const manageLabels = ['e: Edit body in prompt', 'i: Edit info', 'u: Duplicate', 'm: Move', s.pinned ? 'p: Unpin' : 'p: Pin', 'd: Delete', 'b: Back']
+  const actionRows = wrappedRows(useLabels, cols, 2) + wrappedRows(manageLabels, cols, 2)
+  const fullRows = textRows(s.title, cols) + (s.desc ? textRows(s.desc, cols) : 0) + 2 + (varsText ? textRows(varsText, cols) : 0) + 2 + textRows(s.body, cols) + actionRows + (error ? textRows(error, cols) : 0)
+  const tight = limit !== null && fullRows > limit
+  const show = { title: true, desc: Boolean(s.desc), meta: true, path: true, vars: Boolean(varsText), margins: true }
+  const headRows = () => (show.title ? 1 : 0) + (show.desc ? 1 : 0) + (show.meta ? 1 : 0) + (show.path ? 1 : 0) + (show.vars ? 1 : 0) + (show.margins ? 2 : 0) + actionRows + (error ? 1 : 0)
+  let shownBody = bodyLines
+  let hidden = 0
+  if (tight && limit !== null) {
+    const wanted = Math.min(bodyLines.length, DETAIL_MIN_BODY)
+    for (const drop of ['margins', 'path', 'vars', 'desc', 'meta', 'title'] as const) {
+      if (limit - headRows() >= (drop === 'meta' || drop === 'title' ? 0 : wanted)) break
+      show[drop] = false
+    }
+    const room = Math.max(0, limit - headRows())
+    if (room < bodyLines.length) {
+      shownBody = bodyLines.slice(0, Math.max(0, room - 1))
+      hidden = bodyLines.length - shownBody.length
+    }
+  }
+  const lineWrap = tight ? 'truncate-end' : 'wrap'
+  const rows = tight ? headRows() + shownBody.length + (hidden > 0 && limit !== null && limit - headRows() > 0 ? 1 : 0) : fullRows
+  return drawn(rows, (
     <Box flexDirection="column">
-      <Text key="title" {...LOOK.title} wrap="wrap">{s.title}</Text>
-      {s.desc ? <Text key="desc" {...LOOK.meta} wrap="wrap">{s.desc}</Text> : null}
-      <Text key="meta" {...LOOK.meta} wrap="truncate-end">{metaLine(s) + (s.pinned ? ' | pinned' : '') + (s.tags.length ? ' | ' + s.tags.join(', ') : '')}</Text>
-      <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text>
-      {names.length > 0 ? <Text key="vars" {...LOOK.meta} wrap="wrap">{'Placeholders: ' + names.map(p => (p.default ? p.name + '=' + p.default : p.name)).join(', ')}</Text> : null}
-      <Box key="body" flexDirection="column" marginY={1}>
-        {s.body.split('\n').map((line, i) => <Text key={`b${i}`} wrap="wrap">{line || ' '}</Text>)}
+      {show.title ? <Text key="title" {...LOOK.title} wrap={lineWrap}>{s.title}</Text> : null}
+      {show.desc ? <Text key="desc" {...LOOK.meta} wrap={lineWrap}>{s.desc}</Text> : null}
+      {show.meta ? <Text key="meta" {...LOOK.meta} wrap="truncate-end">{metaText}</Text> : null}
+      {show.path ? <Text key="path" {...LOOK.meta} wrap="truncate-start">{s.path}</Text> : null}
+      {show.vars ? <Text key="vars" {...LOOK.meta} wrap={lineWrap}>{varsText}</Text> : null}
+      <Box key="body" flexDirection="column" marginY={show.margins ? 1 : 0}>
+        {shownBody.map((line, i) => <Text key={`b${i}`} wrap={lineWrap}>{line || ' '}</Text>)}
+        {hidden > 0 && limit !== null && limit - headRows() > 0 ? <Text key="b-more" {...LOOK.meta} wrap="truncate-end">{`\u2026 ${String(hidden)} more line(s); e opens the whole body in the prompt`}</Text> : null}
       </Box>
       <Box key="use" flexDirection="row" flexWrap="wrap" columnGap={2}>
         <Button plain key="apply" variant="primary" autoFocus onPress={() => { void choose($, s.path) }}>{`[ ${modeLabel(s.mode)} ]`}</Button>
@@ -907,16 +983,16 @@ async function renderDetail($: EngineInterface, e: PaneEvent, path: string) {
         <Button plain key="del" hotkey="d" onPress={() => { void go($, { screen: 'delete', path: s.path, back: 'detail' }) }}>Delete</Button>
         <Button plain key="back" hotkey="b" role="dismiss" onPress={back}>Back</Button>
       </Box>
-      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
+      {error ? <Text key="err" {...LOOK.error} wrap={tight ? 'truncate-end' : 'wrap'}>{error}</Text> : null}
     </Box>
-  )
+  ))
 }
 
-async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: SnippetMode) {
+async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: SnippetMode): Promise<Drawn> {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const s = await byPath($, path)
   const values = (await $.state.get(valuesRef)).value ?? {}
-  if (!s) return gone($, e, 'This snippet')
+  if (!s) return drawn(null, gone($, e, 'This snippet'))
   const names = placeholdersOf(s.body)
   const applyLabel = modeLabel(mode).toLowerCase()
   const backView: View = { screen: 'detail', path }
@@ -932,16 +1008,18 @@ async function renderFill($: EngineInterface, e: PaneEvent, path: string, mode: 
     if (next) void $.ui.focus({ requestId: PANE, key: 'v:' + next.name })
     else apply()
   }
-  return (
+  return drawn(1 + names.length, (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Fill in: ' + s.title}</Text>
-      {names.map((p, i) => <Input key={'v:' + p.name} label={p.name + ' '} autoFocus={i === 0 ? true : undefined} placeholder={p.default || p.name} value={valueOf(values, p.name)} submitLabel={i === names.length - 1 ? applyLabel : 'next'} onInput={(v: string) => { void setValue($, p.name, v) }} onSubmit={advance(i)} />)}
-      <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
+      <Box key="head" flexDirection="row" columnGap={2}>
+        <Box key="h-box" flexGrow={1} flexShrink={1}>
+          <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Fill in: ' + s.title}</Text>
+        </Box>
         <Button plain key="apply" variant="primary" onPress={apply}>{'[ ' + modeLabel(mode) + ' ]'}</Button>
         <Button plain key="back" role="dismiss" onPress={goBack}>[ Back ]</Button>
       </Box>
+      {names.map((p, i) => <Input key={'v:' + p.name} label={p.name + ' '} autoFocus={i === 0 ? true : undefined} placeholder={p.default || p.name} value={valueOf(values, p.name)} submitLabel={i === names.length - 1 ? applyLabel : 'next'} onInput={(v: string) => { void setValue($, p.name, v) }} onSubmit={advance(i)} />)}
     </Box>
-  )
+  ))
 }
 
 
@@ -1109,13 +1187,24 @@ async function renderMove($: EngineInterface, e: PaneEvent, path: string) {
   )
 }
 
-async function renderTrash($: EngineInterface, e: PaneEvent) {
+async function renderTrash($: EngineInterface, e: PaneEvent, limit: number | null): Promise<Drawn> {
   const { Box, Text, Button } = $.ui.resolve(e)
   const items = (await $.state.get(trashRef)).value ?? []
   const error = (await $.state.get(formErrorRef)).value ?? ''
   const notice = (await $.state.get(noticeRef)).value ?? ''
+  const page = (await $.state.get(trashPageRef)).value ?? 0
   const cols = Math.max(20, e.props.bodyColumns - 1)
-  const shown = items.slice(0, TRASH_SHOWN)
+  const chrome = 1 + (error ? 1 : 0) + 2
+  const perPage = Math.max(1, Math.min(TRASH_SHOWN, limit === null ? TRASH_SHOWN : limit - chrome))
+  const pages = Math.max(1, Math.ceil(items.length / perPage))
+  const current = Math.min(page, pages - 1)
+  const shown = items.slice(current * perPage, current * perPage + perPage)
+  const turn = (delta: number) => () => {
+    void (async () => {
+      const cur = (await $.state.get(trashPageRef)).value ?? 0
+      await $.state.set(trashPageRef, Math.max(0, Math.min(pages - 1, cur + delta)))
+    })()
+  }
   const back = () => { void go($, { screen: 'list' }) }
   const restore = (item: TrashItem) => () => {
     void (async () => {
@@ -1125,10 +1214,10 @@ async function renderTrash($: EngineInterface, e: PaneEvent) {
       await claimKeys($, firstTrashKey((await $.state.get(trashRef)).value ?? []))
     })()
   }
-  const more = items.length > shown.length ? ' (newest ' + String(shown.length) + ' shown)' : ''
-  return (
+  const more = pages > 1 ? ', newest first, page ' + String(current + 1) + '/' + String(pages) : ''
+  return drawn(1 + Math.max(1, shown.length) + (error ? 1 : 0) + 2, (
     <Box flexDirection="column">
-      <Text key="h" {...LOOK.heading}>{'Trash: ' + String(items.length) + ' file(s)' + more}</Text>
+      <Text key="h" {...LOOK.heading} wrap="truncate-end">{'Trash: ' + String(items.length) + ' file(s)' + more}</Text>
       {items.length === 0 ? <Text key="empty" {...LOOK.meta}>Nothing in the .trash folders.</Text> : null}
       {shown.map(item => (
         <Box key={'row-' + item.path} flexDirection="row" columnGap={2}>
@@ -1140,13 +1229,15 @@ async function renderTrash($: EngineInterface, e: PaneEvent) {
           <Text key={'tb-' + item.path} {...LOOK.badge}>{item.source === 'project' ? 'P' : 'G'}</Text>
         </Box>
       ))}
-      {error ? <Text key="err" {...LOOK.error} wrap="wrap">{error}</Text> : null}
+      {error ? <Text key="err" {...LOOK.error} wrap="truncate-end">{error}</Text> : null}
       <Box key="acts" flexDirection="row" gap={2} marginTop={1}>
         <Button plain key="trash-back" role="dismiss" onPress={back}>[ Back ]</Button>
+        {current > 0 ? <Button plain key="trash-prev" onPress={turn(-1)}>[ Prev ]</Button> : null}
+        {current < pages - 1 ? <Button plain key="trash-next" onPress={turn(1)}>[ Next ]</Button> : null}
         <Text key="hint" {...LOOK.hint} wrap="truncate-end">{(notice ? notice + '  ' : '') + 'Enter restores to its snippet folder  Esc close'}</Text>
       </Box>
     </Box>
-  )
+  ))
 }
 
 async function runDirect($: EngineInterface, slug: string): Promise<{ text?: string }> {

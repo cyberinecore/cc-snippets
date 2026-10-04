@@ -3,7 +3,7 @@ import type { Snippet } from '../types'
 import { cleanFolder, folderOf, isUnder, joinPath, mergeSources, parseFrontmatter, parseSnippet, serializeSnippet, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
 import { rank, reorderPinned } from '../src/search'
-import { fit, plainLine, rowColumns, wrappedRows } from '../src/look'
+import { cellWidth, fit, padStartCells, plainLine, rowColumns, textRows, wrappedRows } from '../src/look'
 import { insertAt, redirectEdit } from '../src/caret'
 
 const snip = (over: Partial<Snippet>): Snippet => ({
@@ -249,12 +249,36 @@ describe('row columns', () => {
   })
 })
 
+describe('cell width', () => {
+  test('CJK and emoji take two cells, Vietnamese and combining marks do not widen', async () => {
+    expect(cellWidth('abc')).toBe(3)
+    expect(cellWidth('Tiếng Việt')).toBe(10)
+    expect(cellWidth('e\u0301')).toBe(1)
+    expect(cellWidth('\u4e2d\u6587')).toBe(4)
+    expect(cellWidth('\u{1f600}')).toBe(2)
+  })
+
+  test('fit and padding count cells, not UTF-16 units', async () => {
+    expect(fit('\u4e2d\u6587\u6807\u7b7e', 5)).toBe('\u4e2d\u6587\u2026')
+    expect(cellWidth(fit('\u4e2d\u6587\u6807\u7b7e', 5))).toBeLessThanOrEqual(5)
+    expect(padStartCells('\u4e2d', 4)).toBe('  \u4e2d')
+  })
+
+  test('textRows wraps each line by cell width', async () => {
+    expect(textRows('abcdef', 3)).toBe(2)
+    expect(textRows('ab\ncd', 10)).toBe(2)
+    expect(textRows('\u4e2d\u6587\u6807', 4)).toBe(2)
+  })
+})
+
 describe('wrapped rows', () => {
   test('labels wrap to a new row when the next one with its gap passes the width', async () => {
     expect(wrappedRows([], 40, 2)).toBe(0)
     expect(wrappedRows(['abcd', 'efgh'], 10, 2)).toBe(1)
     expect(wrappedRows(['abcd', 'efgh'], 9, 2)).toBe(2)
     expect(wrappedRows(['abcdefghijkl', 'x'], 10, 2)).toBe(2)
+    expect(wrappedRows(['\u4e2d\u6587\u4e2d\u6587', 'ab'], 10, 2)).toBe(2)
+    expect(wrappedRows(['a'.repeat(25)], 10, 2)).toBe(3)
   })
 })
 

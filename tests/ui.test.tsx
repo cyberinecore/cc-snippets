@@ -180,6 +180,62 @@ describe('page size', () => {
     await ui.unmount()
   })
 
+  test('a short inline body keeps the list whole in compact form: no hint, paging in the tools row', async ($, on) => {
+    const w = world(on)
+    const clock = mock.clock(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const tiny = { ...paneProps(72, 'inline'), scroll: { offset: 0, bodyRows: 5 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: tiny, viewport: { columns: 76, rows: 20 } })
+    await ui.redraw()
+    await clock.advance(1)
+    await ui.redraw()
+    const resultRows = (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:')).length
+    expect(resultRows).toBeGreaterThanOrEqual(1)
+    expect(await ui.find({ key: 'hint' })).toBeUndefined()
+    expect(await ui.find({ key: 'pager' })).toBeUndefined()
+    expect(await ui.find({ key: 'next' })).toBeDefined()
+    expect(await ui.find({ key: 'new' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('details of a long snippet in a short inline body keep the title and actions and cut the body', async ($, on) => {
+    const w = world(on)
+    const clock = mock.clock(on)
+    const body = Array.from({ length: 30 }, (_, i) => 'long line ' + String(i + 1)).join('\n')
+    w.files.set(`${ROOT}/aaa-long.md`, { text: `---\ntitle: Aaa long body\n---\n${body}\n`, mtimeMs: 999 })
+    await $.command.run(run('aaa'))
+    const clamped = { ...paneProps(72, 'inline'), scroll: { offset: 0, bodyRows: 13 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: clamped, viewport: { columns: 76, rows: 46 } })
+    await ui.press({ key: 'details' })
+    await ui.redraw()
+    await clock.advance(1)
+    await ui.redraw()
+    const all = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    expect(all).toMatch(/Aaa long body/)
+    expect(all).toMatch(/more line\(s\)/)
+    expect(all).not.toMatch(/long line 30/)
+    expect(await ui.find({ key: 'apply' })).toBeDefined()
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('trash pages by the rows the pane has', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/.trash/gone-${i}.20260101T00000${i}.md`, { text: `---\ntitle: Gone ${i}\n---\nx\n`, mtimeMs: 200 + i })
+    await $.command.run(run('trash'))
+    const short = { ...paneProps(80, 'dock'), scroll: { offset: 0, bodyRows: 8 } }
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: short })
+    const rows = async () => (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('t:')).length
+    expect(await rows()).toBe(5)
+    const shownText = async () => (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    expect(await shownText()).toMatch(/page 1\/3/)
+    await ui.press({ key: 'trash-next' })
+    expect(await shownText()).toMatch(/page 2\/3/)
+    expect(await ui.find({ key: 'trash-prev' })).toBeDefined()
+    await ui.unmount()
+  })
+
   test('/sn rows sets the results per page, refuses out-of-range values and survives a reload', async ($, on) => {
     const w = world(on)
     for (let i = 0; i < 20; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })

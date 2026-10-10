@@ -48,7 +48,7 @@ const PIN_ORDER_KEY = 'pinOrder'
 const VALUES_KEY = 'lastValues'
 const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
-const HOTKEY_ROWS = 9
+const HOTKEY_ROWS = 10
 const DIRECT = '!'
 const REFOCUS_MARK = '#refocus-'
 const FOLDER_RULE = 'Folder: names of letters, digits, . _ - separated by /, none starting with a dot; empty is the top level'
@@ -898,7 +898,7 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
         {shown.map((s, i) => (
           <Box key={`row-${s.path}`} flexDirection="row" columnGap={2}>
             <Box key={`t-${s.path}`} flexGrow={1}>
-              {i < HOTKEY_ROWS ? <Button key={rowKey(s.path)} plain hotkey={String(i + 1)} onPress={() => { void choose($, s.path) }}>{fit(s.title, col.title - 1)}</Button> : <Button key={rowKey(s.path)} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>}
+              {i < HOTKEY_ROWS ? <Button key={rowKey(s.path)} plain hotkey={String((i + 1) % 10)} onPress={() => { void choose($, s.path) }}>{fit(s.title, col.title - 1)}</Button> : <Button key={rowKey(s.path)} plain onPress={() => { void choose($, s.path) }}>{BULLET + fit(s.title, col.title)}</Button>}
             </Box>
             {col.showMode ? <Text key={`mo:${s.path}`} {...LOOK.meta}>{s.mode.padEnd(6)}</Text> : null}
             <Text key={`sl:${s.path}`} {...LOOK.accent}>{padStartCells(fit(s.slug, col.slug), col.slug)}</Text>
@@ -935,7 +935,7 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
         {focusedHit?.pinned ? <Button plain key="pin-up" hotkey="k" onPress={shiftPinned(focusedHit, -1)}>Up</Button> : null}
         {focusedHit?.pinned ? <Button plain key="pin-down" hotkey="j" onPress={shiftPinned(focusedHit, 1)}>Down</Button> : null}
       </Box>
-      {compact ? null : <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 1-9 pick, o details, d delete, p pin, k/j move pinned'}</Text>}
+      {compact ? null : <Text key="hint" {...LOOK.hint} wrap="truncate-end">{String(hits.length) + '/' + String(all.length) + (errors > 0 ? ' (' + String(errors) + ' skipped)' : '') + (notice ? '  ' + notice : '') + '  Esc close  Enter use  Tab move  on a row: 0-9 pick, o details, d delete, p pin, k/j move pinned'}</Text>}
     </Box>
   ))
 }

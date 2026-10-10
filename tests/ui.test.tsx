@@ -630,15 +630,14 @@ describe('v0.2 organize and speed', () => {
     await ui.unmount()
   })
 
-  test('the first nine rows carry digit hotkeys', async ($, on) => {
+  test('the first ten rows carry digit hotkeys, 0 for the tenth', async ($, on) => {
     const w = world(on)
     for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
     await $.command.run(run(''))
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(80, 'dock') })
     const rows = (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:'))
     expect(rows.length).toBeGreaterThan(9)
-    expect(rows.slice(0, 9).map(b => b.props.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9'])
-    expect(rows[9]?.props.hotkey).toBeUndefined()
+    expect(rows.slice(0, 10).map(b => b.props.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'])
     await ui.unmount()
   })
 

@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.12] - 2026-10-10
+
+- The tenth result on a page carries the `0` hotkey and shows `0:` instead of a bullet, so every row of a default 10-row page can be applied with one key. Rows past the tenth (a page size above 10) keep the bullet.
+
 ## [0.2.11] - 2026-10-05
 
 - When the pane is shorter than the New, Edit or Duplicate form (a terminal about 22 rows tall gives a 5-row pane), the form pairs Title with Slug and Desc with Tags on one row each and hides the body preview, so it fits in five rows and Up and Down walk every field and button. The focus order is unchanged, and a taller pane keeps one field per row.

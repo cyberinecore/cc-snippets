@@ -178,6 +178,8 @@ claude plugin validate .claude-plugin/plugin.json --strict
 claude plugin test .                       # unit and pane tests
 ```
 
+Run the unit and pane tests with `claude plugin test .`, not `bun test`: the tests import `claude-code/testing`, which only the Claude Code runner provides, so `bun test` fails with "Cannot find module 'claude-code/testing'" before any test runs.
+
 `hooks/register.tsx` holds every hook and every function that touches the engine, because the engine only follows `$` within one file. Pure logic lives in `src/` (parsing, placeholders, search, caret), and every visual constant the pane uses is in `src/look.ts`.
 
 ## License

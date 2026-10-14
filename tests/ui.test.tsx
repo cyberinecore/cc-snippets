@@ -835,6 +835,31 @@ describe('v0.2 organize and speed', () => {
     expect(r.text).toMatch(/global dir: C:\/Users\/test\/\.claude\/snippets/)
   })
 
+  test('the snippets_dir option from /config wins over CYBERINE_SNIPPETS_DIR', { options: { snippets_dir: '/picked/' } }, async ($, on) => {
+    world(on, { env: { HOME: '/home/test', CYBERINE_SNIPPETS_DIR: ROOT } })
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/picked\n/)
+  })
+
+  test('a snippets_dir starting with ~ expands to the home folder', { options: { snippets_dir: '~/notes/snippets' } }, async ($, on) => {
+    world(on, { env: { HOME: '/home/test' } })
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/home\/test\/notes\/snippets\n/)
+  })
+
+  test('an empty snippets_dir falls through to CYBERINE_SNIPPETS_DIR', { options: { snippets_dir: '  ' } }, async ($, on) => {
+    world(on, { env: { HOME: '/home/test', CYBERINE_SNIPPETS_DIR: ROOT } })
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/snip\n/)
+  })
+
+  test('the current /config value wins over the value the plugin loaded with', { options: { snippets_dir: '/loaded' } }, async ($, on) => {
+    world(on, { env: { HOME: '/home/test' } })
+    on('config.list', async () => ({ value: [{ key: 'cyberine-snippets.snippets_dir', label: 'Snippet folder', kind: 'text' as const, value: '/changed', provider: { plugin: 'cyberine-snippets', tier: 'user' }, isLocked: false }] }))
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/changed\n/)
+  })
+
   test('HOME wins over USERPROFILE when both are set', async ($, on) => {
     world(on, { env: { HOME: '/home/test', USERPROFILE: 'C:\\Users\\test' } })
     const r = await $.command.run(run('doctor'))

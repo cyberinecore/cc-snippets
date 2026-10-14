@@ -2,6 +2,11 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.13] - 2026-10-14
+
+- Snippet folder (`snippets_dir`) in `/config` sets the global snippet folder without an environment variable; a leading `~` means your home folder. It wins over `CYBERINE_SNIPPETS_DIR`, and when both are empty the folder stays `~/.claude/snippets`. The plugin reads the current value, so a change applies at the next reload.
+- On native Windows, where `HOME` is usually unset, the home folder comes from `USERPROFILE`, and backslashes in folder paths become forward slashes.
+
 ## [0.2.12] - 2026-10-10
 
 - The tenth result on a page carries the `0` hotkey and shows `0:` instead of a bullet, so every row of a default 10-row page can be applied with one key. Rows past the tenth (a page size above 10) keep the bullet.

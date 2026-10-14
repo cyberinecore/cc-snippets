@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, RenderElement, RenderInput } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, RenderElement, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, InlineCap, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
 import type { Layout } from '../src/look'
@@ -48,6 +48,10 @@ const PIN_ORDER_KEY = 'pinOrder'
 const VALUES_KEY = 'lastValues'
 const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
+const SNIPPETS_DIR_OPTION = 'snippets_dir'
+const SNIPPETS_DIR_KEY = 'cyberine-snippets.snippets_dir'
+
+let registeredOptions: PluginOptions = {}
 const HOTKEY_ROWS = 10
 const DIRECT = '!'
 const REFOCUS_MARK = '#refocus-'
@@ -245,10 +249,24 @@ async function homeDir($: EngineInterface): Promise<string> {
   return toSlashes((await $.env.get('USERPROFILE')) ?? '')
 }
 
+async function configuredDir($: EngineInterface): Promise<string> {
+  const rows = await $.config.list().catch(() => null)
+  const row = rows?.find(r => r.key === SNIPPETS_DIR_KEY)
+  const value = row ? row.value : registeredOptions[SNIPPETS_DIR_OPTION]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function expandHome(path: string, home: string): string {
+  if (path === '~') return home
+  if (path.startsWith('~/') || path.startsWith('~\\')) return `${home}/${path.slice(2)}`
+  return path
+}
+
 async function snippetRoots($: EngineInterface): Promise<Library['roots']> {
   const home = await homeDir($)
-  const override = await $.env.get('CYBERINE_SNIPPETS_DIR')
-  const global = override && override.trim() ? toSlashes(override) : `${home}/.claude/snippets`
+  const picked = await configuredDir($)
+  const override = picked || ((await $.env.get('CYBERINE_SNIPPETS_DIR')) ?? '').trim()
+  const global = override ? toSlashes(expandHome(override, home)) : `${home}/.claude/snippets`
   const repo = await $.session.repo().catch(() => null)
   const root = repo?.root ?? (await $.session.root().catch(() => ''))
   const project = root ? `${toSlashes(root)}/.claude/snippets` : null
@@ -1377,7 +1395,8 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
   }
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  registeredOptions = options ?? {}
   on('session.start', async ($, e, next) => {
     await $.state.set(pendingCursorRef, null)
     await $.state.set(bodyEditRef, null)

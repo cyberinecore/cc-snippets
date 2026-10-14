@@ -18,7 +18,10 @@ test('the manifest carries the metadata the directory reads', () => {
   assert.equal(m.license, 'MIT');
   assert.ok(m.author?.name, 'plugin.json author.name');
   assert.equal(m.hooks, undefined, 'hooks/hooks.json loads automatically and must not be listed');
-  assert.equal(m.userConfig, undefined, 'userConfig with options is a portal Block; none is declared');
+  for (const [key, field] of Object.entries(m.userConfig ?? {})) {
+    assert.equal(field.options, undefined, `userConfig.${key} declares options, a portal Block`);
+    assert.equal(field.type, 'string', `userConfig.${key} is a plain string`);
+  }
   for (const key of ['documentationUrl', 'supportUrl']) assert.equal(m[key], undefined, `${key} draws an UNKNOWN_KEY warning`);
   for (const s of [m.displayName, m.author.name]) assert.match(s, /^[\x20-\x7e]+$/, 'ASCII only');
   const market = readJson('.claude-plugin/marketplace.json');

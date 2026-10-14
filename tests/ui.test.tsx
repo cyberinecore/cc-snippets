@@ -828,4 +828,16 @@ describe('v0.2 organize and speed', () => {
     const r = await $.command.run(run('doctor'))
     expect(r.text).toMatch(/global dir: \/home\/test\/\.claude\/snippets/)
   })
+
+  test('without HOME the global folder comes from USERPROFILE, with forward slashes', async ($, on) => {
+    world(on, { env: { USERPROFILE: 'C:\\Users\\test' } })
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: C:\/Users\/test\/\.claude\/snippets/)
+  })
+
+  test('HOME wins over USERPROFILE when both are set', async ($, on) => {
+    world(on, { env: { HOME: '/home/test', USERPROFILE: 'C:\\Users\\test' } })
+    const r = await $.command.run(run('doctor'))
+    expect(r.text).toMatch(/global dir: \/home\/test\/\.claude\/snippets/)
+  })
 })

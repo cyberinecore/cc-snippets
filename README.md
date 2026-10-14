@@ -32,7 +32,7 @@ claude --plugin-dir /path/to/cc-snippets
 
 ## Snippet files
 
-- Global: `~/.claude/snippets/**/*.md`. Set `CYBERINE_SNIPPETS_DIR` to use another folder.
+- Global: `~/.claude/snippets/**/*.md`, where `~` is `HOME`, or `USERPROFILE` when `HOME` is unset (native Windows). Set `CYBERINE_SNIPPETS_DIR` to use another folder.
 - Project: `<repo root>/.claude/snippets/**/*.md`. A project snippet replaces a global one with the same slug.
 - Files and folders whose names start with a dot are ignored, which is where `.trash` lives. Subfolders are read up to 6 levels deep, and at most 2000 files are read from each snippet folder.
 
@@ -146,7 +146,7 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
 
 ## What it reads, writes, runs and sends
 
-- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, and `<repo root>/.claude/snippets`), and the files in their `.trash` folders when you open `/sn trash`. It reads the `HOME` and `CYBERINE_SNIPPETS_DIR` environment variables only to find the global folder. It reads no other file.
+- Files it reads: the Markdown files in the snippet folders (`~/.claude/snippets`, or the folder in `CYBERINE_SNIPPETS_DIR`, and `<repo root>/.claude/snippets`), and the files in their `.trash` folders when you open `/sn trash`. It reads the `HOME`, `USERPROFILE` and `CYBERINE_SNIPPETS_DIR` environment variables only to find the global folder. It reads no other file.
 - What it puts in a prompt it submits (`prompt.submit`): only the text of a snippet you picked whose `mode` is `submit`, with the placeholder values you typed, after you chose it. It never adds the content of any other file, the conversation or your draft.
 - The prompt box (`prompt.read`, `prompt.fill`): it reads the draft only to insert a snippet at your caret, to hold the draft while the `;;` picker is open, and to save a draft or an edited body as a snippet file. The draft goes back into the prompt box or into that snippet file, nowhere else. While a body edit or a held draft is active, Enter in the prompt box saves or is held back instead of sending. It never reads the conversation transcript, Claude's memory or chat history.
 - Files it writes (`fs.write`): only snippet `.md` files inside the snippet folders above: a snippet you create, edit, pin, move or restore, and the copy of a deleted or renamed snippet in the `.trash` folder of its snippet folder. Every write and removal is checked to stay inside those folders; it never writes build, start-up, settings or instruction files.

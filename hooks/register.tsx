@@ -235,13 +235,23 @@ async function readSource($: EngineInterface, files: ReadonlyArray<{ path: strin
   return snippets
 }
 
+function toSlashes(path: string): string {
+  return trimSlashes(path.trim().replace(/\\/g, '/'))
+}
+
+async function homeDir($: EngineInterface): Promise<string> {
+  const home = (await $.env.get('HOME'))?.trim()
+  if (home) return toSlashes(home)
+  return toSlashes((await $.env.get('USERPROFILE')) ?? '')
+}
+
 async function snippetRoots($: EngineInterface): Promise<Library['roots']> {
-  const home = (await $.env.get('HOME')) ?? ''
+  const home = await homeDir($)
   const override = await $.env.get('CYBERINE_SNIPPETS_DIR')
-  const global = override && override.trim() ? trimSlashes(override.trim()) : `${home}/.claude/snippets`
+  const global = override && override.trim() ? toSlashes(override) : `${home}/.claude/snippets`
   const repo = await $.session.repo().catch(() => null)
   const root = repo?.root ?? (await $.session.root().catch(() => ''))
-  const project = root ? `${trimSlashes(root)}/.claude/snippets` : null
+  const project = root ? `${toSlashes(root)}/.claude/snippets` : null
   return { global, project: project === global ? null : project }
 }
 

@@ -1,4 +1,4 @@
-import type { EngineInterface, PluginOptions, Register, RenderElement, RenderInput } from 'claude-code'
+import type { EngineInterface, PluginOptions, PromptDecoration, Register, RenderElement, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, InlineCap, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
 import type { Layout } from '../src/look'
@@ -50,6 +50,12 @@ const TRASH_DIR = '.trash'
 const TRASH_SHOWN = 15
 const SNIPPETS_DIR_OPTION = 'snippets_dir'
 const SNIPPETS_DIR_KEY = 'cyberine-snippets.snippets_dir'
+
+const PLUGIN_NAME = 'cyberine-snippets'
+const VIRTUAL_TEXT_PATCH = 300
+const PROMPT_CHANGE = 'prompt.change'
+
+type PromptChangeLike = { text: string; cursor: number; origin: { kind: string; name?: string } }
 
 let registeredOptions: PluginOptions = {}
 const HOTKEY_ROWS = 10
@@ -667,9 +673,22 @@ async function openTrash($: EngineInterface): Promise<{ text?: string }> {
   return opened
 }
 
+async function hasVirtualText($: EngineInterface): Promise<boolean> {
+  const v = await $.session.version().catch(() => null)
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v?.base ?? v?.version ?? '')
+  if (!m) return false
+  const [major, minor, patch] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  return major > 2 || (major === 2 && (minor > 1 || (minor === 1 && patch >= VIRTUAL_TEXT_PATCH)))
+}
+
+function bodyEditHint(title: string, text: string): PromptDecoration {
+  return { start: text.length, end: text.length, virtualText: `  (Enter saves "${title}", /sn cancel stops)`, dimColor: true }
+}
+
 async function editBodyInPrompt($: EngineInterface, target: Saved): Promise<void> {
   await closePicker($)
-  const filled = await $.prompt.fill({ text: target.body, mode: 'replace' })
+  const decorations = (await hasVirtualText($)) ? [bodyEditHint(target.title, target.body)] : undefined
+  const filled = await $.prompt.fill(decorations ? { text: target.body, mode: 'replace', decorations } : { text: target.body, mode: 'replace' })
   if (!filled.isFilled) {
     $.ui.toast(`snippets: the prompt box did not take the body (${filled.refusal ?? 'unknown'})`)
     return
@@ -1475,10 +1494,26 @@ export const register: Register = (on, options) => {
       if (redirected) return { text: redirected.text, cursor: redirected.cursor }
     }
     const result = await next(e)
+    const { value: editing } = await $.state.get(bodyEditRef)
+    if (!editing) return result
     if (result.text === '') {
-      const { value: editing } = await $.state.get(bodyEditRef)
-      if (editing) await endBodyEdit($)
+      await endBodyEdit($)
+      return result
     }
-    return result
+    if (!(await hasVirtualText($))) return result
+    return { ...result, decorations: [...(result.decorations ?? []), bodyEditHint(editing.title, result.text)] }
+  })
+
+  on('prompt.*', async ($, e, next) => {
+    if (next.event !== PROMPT_CHANGE || !next.is(PROMPT_CHANGE, e)) return next(e)
+    const change = e as unknown as PromptChangeLike
+    if (change.origin.kind === 'plugin' && change.origin.name === PLUGIN_NAME) return next(e)
+    await $.state.set(pendingCursorRef, null)
+    const { value: editing } = await $.state.get(bodyEditRef)
+    if (editing && (change.text === '' || change.origin.kind === 'history' || change.origin.kind === 'clear')) {
+      await endBodyEdit($)
+      $.ui.toast(`snippets: stopped editing "${editing.title}"; nothing was saved`)
+    }
+    return next(e)
   })
 }

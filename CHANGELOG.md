@@ -2,6 +2,12 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.14] - 2026-10-15
+
+- While you edit a snippet body in the prompt box, recalling a history entry or clearing the box stops the edit, so the next Enter no longer saves that text over the snippet. Needs Claude Code 2.1.300 or newer; older versions keep the previous behaviour.
+- On Claude Code 2.1.300 or newer the prompt box shows a dim `(Enter saves "<title>", /sn cancel stops)` after the body while you edit it; the hint is never part of the text. The status line message stays.
+- Before Claude Code 2.1.300, Claude Code itself recorded a body you saved this way, and a draft held by `;;`, in its OpenTelemetry `user_prompt` event and in session title requests although the plugin did not send them; 2.1.300 fixed that.
+
 ## [0.2.13] - 2026-10-14
 
 - Snippet folder (`snippets_dir`) in `/config` sets the global snippet folder without an environment variable; a leading `~` means your home folder. It wins over `CYBERINE_SNIPPETS_DIR`, and when both are empty the folder stays `~/.claude/snippets`. The plugin reads the current value, so a change applies at the next reload.

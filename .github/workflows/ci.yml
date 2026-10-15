@@ -19,13 +19,16 @@ jobs:
 
   plugin:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        claude-code: ['2.1.287', '2.1.300']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@2.1.287
+        run: npm install -g @anthropic-ai/claude-code@${{ matrix.claude-code }}
       - name: Validate the plugin and marketplace
         run: |
           claude plugin validate . --strict

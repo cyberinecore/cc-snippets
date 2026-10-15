@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
-import type { On, PromptEditInput, PromptEditResult } from 'claude-code'
+import type { On, PromptEditInput, PromptEditResult, TestBody } from 'claude-code'
 
 const PLUGIN = 'cyberine-snippets'
 const PANE = 'snippets'
@@ -12,10 +12,10 @@ const FIXTURES: Record<string, string> = {
   [`${ROOT}/broken.md`]: '---\ndesc: no title here\n---\nbody\n',
 }
 
-type World = { files: Map<string, { text: string; mtimeMs: number }>; fills: string[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
+type World = { files: Map<string, { text: string; mtimeMs: number }>; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
 function world(on: On, options: { isPlaced?: boolean; env?: Record<string, string>; project?: string } = {}): World {
-  const w: World = { files: new Map(), fills: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
+  const w: World = { files: new Map(), fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
   const isDir = (p: string) => [...w.files.keys()].some(f => f.startsWith(`${p}/`))
@@ -65,6 +65,7 @@ function world(on: On, options: { isPlaced?: boolean; env?: Record<string, strin
   on('prompt.read', async () => ({ value: { ...w.box } }))
   on('prompt.fill', async ($, e) => {
     w.fills.push(e.text)
+    if (e.decorations) w.decorations.push(...e.decorations)
     w.box = { text: e.text, cursor: e.text.length }
     return { isFilled: true }
   })
@@ -76,6 +77,7 @@ function world(on: On, options: { isPlaced?: boolean; env?: Record<string, strin
 }
 
 type EditCall = { edit: (e: PromptEditInput) => Promise<PromptEditResult> }
+type ChangeCall = { change: (e: { text: string; cursor: number; origin: { kind: string; name?: string } }) => Promise<unknown> }
 const editOf = (p: unknown) => (p as EditCall).edit
 
 const run = (args: string) => ({ command: 'sn', args, origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 150 } })
@@ -431,6 +433,73 @@ describe('manage', () => {
     const after = await $.prompt.submit({ text: 'a normal prompt', wait: false, origin: { kind: 'composer' } })
     expect(after.drop).toBeUndefined()
     await ui.unmount()
+  })
+
+  const startBodyEdit = async ($: Parameters<TestBody>[0], w: World) => {
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'edit-body' })
+    await ui.unmount()
+    expect(w.fills[0]).toMatch(/^Before writing code:/)
+  }
+  const changeOf = (p: unknown) => (p as ChangeCall).change
+  const hasPromptChange = (p: unknown) => typeof (p as Partial<ChangeCall>).change === 'function'
+  const engineChange = (on: On) => on('prompt.*', async ($, e, next) => (next.event === 'prompt.change' ? { text: (e as { text: string }).text } : next(e)))
+
+  test('a recalled history entry stops body editing, so Enter sends it instead of saving it', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: 'an old prompt from history', cursor: 26, origin: { kind: 'history' } })
+    const r = await $.prompt.submit({ text: 'an old prompt from history', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBeUndefined()
+    expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toMatch(/Before writing code:/)
+  })
+
+  test('a clear that is not a typed edit stops body editing', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: '', cursor: 0, origin: { kind: 'clear' } })
+    const r = await $.prompt.submit({ text: 'typed after the clear', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBeUndefined()
+  })
+
+  test("the plugin's own fill and a non-empty undo keep body editing", async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: 'Before writing code:', cursor: 20, origin: { kind: 'plugin', name: PLUGIN } })
+    await changeOf($.prompt)({ text: 'Before writing', cursor: 14, origin: { kind: 'undo' } })
+    const r = await $.prompt.submit({ text: 'Kept editing', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toMatch(/saved the body of "Plan before coding"/)
+  })
+
+  test('while a body is edited the prompt box shows the save hint as virtual text, never in the text', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    on('session.version', async () => ({ value: { version: '2.1.300', base: '2.1.300' } }))
+    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+    await startBodyEdit($, w)
+    expect(w.fills[0]).not.toMatch(/Enter saves/)
+    expect(w.decorations).toEqual([expect.objectContaining({ virtualText: expect.stringMatching(/Enter saves "Plan before coding"/), dimColor: true })])
+    const typed = await editOf($.prompt)({ origin: { kind: 'composer' }, text: 'Body', cursor: 4, start: 4, end: 4, inputText: '!' })
+    expect(typed.text).toBe('Body!')
+    expect(typed.decorations).toEqual([expect.objectContaining({ start: 5, end: 5, virtualText: expect.stringMatching(/Enter saves/) })])
+  })
+
+  test('before Claude Code 2.1.300 the body edit carries no decorations', async ($, on) => {
+    const w = world(on)
+    on('session.version', async () => ({ value: { version: '2.1.299', base: '2.1.299' } }))
+    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+    await startBodyEdit($, w)
+    expect(w.decorations).toEqual([])
+    const typed = await editOf($.prompt)({ origin: { kind: 'composer' }, text: 'Body', cursor: 4, start: 4, end: 4, inputText: '!' })
+    expect(typed.decorations).toBeUndefined()
   })
 })
 

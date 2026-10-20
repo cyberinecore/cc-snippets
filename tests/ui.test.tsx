@@ -12,30 +12,32 @@ const FIXTURES: Record<string, string> = {
   [`${ROOT}/broken.md`]: '---\ndesc: no title here\n---\nbody\n',
 }
 
-type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
+type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; reads: string[]; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
 function world(on: On, options: { isPlaced?: boolean; env?: Record<string, string>; project?: string } = {}): World {
-  const w: World = { files: new Map(), links: new Map(), fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
+  const w: World = { files: new Map(), links: new Map(), reads: [], fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
   const isDir = (p: string) => p === '/' || [...w.files.keys()].some(f => f.startsWith(`${p}/`))
   mock.env(on, options.env ?? { HOME: '/home/test', CYBERINE_SNIPPETS_DIR: ROOT })
   mock.store(on)
-  on('fs.exists', async ($, e) => ({ value: w.files.has(e.path) || isDir(e.path) }))
-  on('fs.list', async ($, e) => {
-    const names = new Map<string, 'file' | 'dir'>()
-    for (const f of w.files.keys()) {
-      if (!f.startsWith(`${e.path}/`)) continue
-      const [head = '', ...rest] = f.slice(e.path.length + 1).split('/')
-      names.set(head, rest.length > 0 ? 'dir' : 'file')
-    }
-    return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: kind === 'file' ? (w.files.get(`${e.path}/${name}`)?.mtimeMs ?? 0) : 0, isLink: false })) }
-  })
   const realOf = (p: string) => {
     for (const [link, target] of w.links) if (p === link || p.startsWith(`${link}/`)) return target + p.slice(link.length)
     return p
   }
+  on('fs.exists', async ($, e) => ({ value: w.files.has(realOf(e.path)) || isDir(realOf(e.path)) }))
+  on('fs.list', async ($, e) => {
+    const at = realOf(e.path)
+    const names = new Map<string, 'file' | 'dir'>()
+    for (const f of w.files.keys()) {
+      if (!f.startsWith(`${at}/`)) continue
+      const [head = '', ...rest] = f.slice(at.length + 1).split('/')
+      names.set(head, rest.length > 0 ? 'dir' : 'file')
+    }
+    return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: kind === 'file' ? (w.files.get(`${at}/${name}`)?.mtimeMs ?? 0) : 0, isLink: false })) }
+  })
   on('fs.read', async ($, e) => {
+    w.reads.push(e.path)
     const f = w.files.get(realOf(e.path))
     return f ? { value: f.text } : { deny: `ENOENT ${e.path}` }
   })
@@ -426,6 +428,14 @@ describe('manage', () => {
     await ui.unmount()
   })
 
+  test('/sn trash does not read a .trash folder that is a link leading outside the snippet folder', async ($, on) => {
+    const w = world(on)
+    w.links.set(`${ROOT}/.trash`, '/outside/trash')
+    w.files.set('/outside/trash/secret.2026-01-01T00-00-00-000Z.md', { text: '---\ntitle: Outside file\n---\nprivate\n', mtimeMs: 50 })
+    await $.command.run(run('trash'))
+    expect(w.reads.filter(p => p.includes('.trash'))).toEqual([])
+  })
+
   test('a subfolder that is a link leading outside the snippet folder stops a save there', async ($, on) => {
     const w = world(on)
     w.links.set(`${ROOT}/sub`, '/outside/sub')
@@ -515,6 +525,22 @@ describe('manage', () => {
     expect(r.drop).toMatch(/saved the body of "Plan before coding"/)
     await clock.advance(250)
     expect((await $.command.run(run('cancel'))).text).toBe('snippets: nothing was being edited')
+  })
+
+  test('a save that fails after the Enter clear keeps body editing, so the next Enter does not send the body', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    const clock = mock.clock(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    w.files.set(`${ROOT}/multi-line.md`, { text: '---\ntitle: Plan before coding\n---\nchanged elsewhere\n', mtimeMs: 999 })
+    await changeOf($.prompt)({ text: '', cursor: 0, origin: { kind: 'clear' } })
+    const failed = await $.prompt.submit({ text: 'My edit', wait: false, origin: { kind: 'composer' } })
+    expect(failed.drop).toMatch(/not saved: .*changed on disk/)
+    await clock.advance(250)
+    const again = await $.prompt.submit({ text: 'My edit', wait: false, origin: { kind: 'composer' } })
+    expect(again.drop).toMatch(/not saved/)
+    expect(w.submits).toHaveLength(0)
   })
 
   test("the plugin's own fill and a non-empty undo keep body editing", async ($, on) => {

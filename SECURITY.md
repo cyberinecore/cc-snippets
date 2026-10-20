@@ -11,3 +11,5 @@ Report privately through GitHub's "Report a vulnerability" button on https://git
 In scope: a snippet file, slug or folder name that makes the plugin write, move, restore or delete a path outside `~/.claude/snippets` (or the configured folder) and `<repo>/.claude/snippets`; a save that overwrites a file other than the one you chose; a prompt submitted without your action; and any read of the conversation transcript.
 
 Out of scope: the content of your own snippets, and Anthropic turning installed mods off remotely.
+
+Known limit: the plugin checks where a path lands, with symbolic links followed, before each write, move, restore, delete and trash read, and checks the source again just before it removes a file. Claude Code's file API has no operations bound to an open folder, so another program that swaps a folder in the snippet folders for a link between that check and the file operation can still redirect it. Doing that needs write access to your snippet folders already.

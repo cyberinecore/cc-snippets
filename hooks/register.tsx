@@ -534,7 +534,7 @@ async function realLanding($: EngineInterface, path: string): Promise<string | n
   let probe = path
   for (;;) {
     const st = await $.fs.stat(probe, { resolve: true }).catch(() => undefined)
-    if (st?.realPath) return st.realPath.replace(/\/+$/, '') + (probe === '/' ? path : path.slice(probe.length))
+    if (st?.realPath) return st.realPath.replace(/\\/g, '/').replace(/\/+$/, '') + (probe === '/' ? path : path.slice(probe.length))
     if (st || probe === '/' || !probe.includes('/')) return null
     probe = probe.slice(0, probe.lastIndexOf('/')) || '/'
   }
@@ -547,6 +547,7 @@ async function moveFile($: EngineInterface, from: string, to: string): Promise<b
   if (typeof text !== 'string') return false
   await $.fs.write(to, text)
   if (!(await $.fs.exists(to))) return false
+  if (!(await insideSnippetRoots($, from))) return false
   const r = await $.process.run(['rm', '-f', '--', from])
   return r.exitCode === 0 && !(await $.fs.exists(from))
 }
@@ -664,10 +665,12 @@ async function listTrash($: EngineInterface): Promise<TrashItem[]> {
   for (const [source, root] of sources) {
     if (!root) continue
     const dir = root + '/' + TRASH_DIR
+    if (!(await landsInside($, root, dir))) continue
     const entries = await $.fs.list(dir).catch(() => [])
     for (const entry of entries) {
       if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.md')) continue
       const path = dir + '/' + entry.name
+      if (!(await landsInside($, root, path))) continue
       const slug = trashSlug(entry.name)
       const text = await $.fs.read(path).catch(() => '')
       const parsed = parseSnippet(path, typeof text === 'string' ? text : '', source, entry.mtimeMs)
@@ -721,7 +724,7 @@ async function editBodyInPrompt($: EngineInterface, target: Saved): Promise<void
     $.ui.toast(`snippets: the prompt box did not take the body (${filled.refusal ?? 'unknown'})`)
     return
   }
-  await $.state.set(bodyEditRef, { slug: target.slug, title: target.title, path: target.path, text: target.body, paused: false })
+  await $.state.set(bodyEditRef, { slug: target.slug, title: target.title, path: target.path, text: target.body, paused: false, seq: 0 })
   await $.state.set(endedEditRef, null)
   $.ui.status(editingStatus(target.title))
 }
@@ -730,9 +733,9 @@ function editingStatus(title: string): string {
   return `Editing snippet "${title}": Enter saves it, /sn cancel stops`
 }
 
-async function endAfterClear($: EngineInterface, path: string): Promise<void> {
+async function endAfterClear($: EngineInterface, path: string, seq: number): Promise<void> {
   const { value: editing } = await $.state.get(bodyEditRef)
-  if (!editing || editing.path !== path) return
+  if (!editing || editing.path !== path || editing.seq !== seq) return
   await endBodyEdit($)
   $.ui.toast(`snippets: stopped editing "${editing.title}"; nothing was saved`)
 }
@@ -1518,6 +1521,7 @@ export const register: Register = (on, options) => {
       await endBodyEdit($)
       return { drop: `snippets: "${editing.title}" is gone (${editing.path}); your text was not sent. Run /sn reload, or press Enter again to send it.` }
     }
+    await $.state.set(bodyEditRef, { ...editing, seq: editing.seq + 1 })
     const r = await saveDraft($, 'edit', s.path, { ...draftFrom(s, 'edit'), body: e.text })
     if (!r.ok) return { drop: `snippets: not saved: ${r.error}. Your text was not sent; /sn cancel stops editing.` }
     await endBodyEdit($, true)
@@ -1566,7 +1570,7 @@ export const register: Register = (on, options) => {
     if (!editing) return next(e)
     if (change.text === '' || change.origin.kind === 'clear') {
       // DECISION: a clear ends a body edit after CLEAR_GRACE_MS, not at once, because the Enter that saves raises this clear before prompt.submit runs.
-      $.clock.after(CLEAR_GRACE_MS, () => { void endAfterClear($, editing.path) })
+      $.clock.after(CLEAR_GRACE_MS, () => { void endAfterClear($, editing.path, editing.seq) })
     } else if (change.origin.kind === 'history' && editing.paused && change.text === editing.text) {
       await $.state.set(bodyEditRef, { ...editing, paused: false })
       $.ui.status(editingStatus(editing.title))

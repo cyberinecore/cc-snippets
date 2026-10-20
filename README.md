@@ -163,7 +163,7 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
   - `prompt.submit`: only while you are editing a snippet body, or while the picker holds a `;;` draft, Enter in the prompt box saves the body or is held back instead of sending; every other prompt passes through unchanged.
 - What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; the results per page; the order of pinned snippets, by file path; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
 - What it sends off the machine: nothing of its own. It has no network code. A snippet you fill into the prompt box, or a `submit` snippet you pick, becomes a prompt that Claude Code sends to the model like any prompt you type. See `PRIVACY.md`.
-- Overwrites: every save, move and restore checks that the target file does not exist yet, and that the target and its folders land inside the snippet folders once symbolic links are followed. Claude Code's file API has no exclusive create, so two sessions saving the same new slug in the same instant can still overwrite one another.
+- Overwrites: every save, move and restore checks that the target file does not exist yet, and that the target and its folders land inside the snippet folders once symbolic links are followed; `/sn trash` reads only `.trash` files that land inside them too. See `SECURITY.md` for the limit of these checks. Claude Code's file API has no exclusive create, so two sessions saving the same new slug in the same instant can still overwrite one another.
 
 ## Troubleshooting
 

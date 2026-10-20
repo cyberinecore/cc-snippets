@@ -63,7 +63,7 @@ export type Filter = { source: 'all' | SnippetSource; tag: string }
 
 export type HeldDraft = { text: string; cursor: number }
 
-export type BodyEdit = { slug: string; title: string; path: string; text: string; paused: boolean }
+export type BodyEdit = { slug: string; title: string; path: string; text: string; paused: boolean; seq: number }
 
 export type EndedEdit = { title: string }
 

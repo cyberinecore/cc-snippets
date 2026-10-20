@@ -517,7 +517,27 @@ function stamp(): string {
 
 async function insideSnippetRoots($: EngineInterface, ...paths: string[]): Promise<boolean> {
   const lib = await getLibrary($)
-  return paths.every(p => isUnder(lib?.roots.global, p) || isUnder(lib?.roots.project, p))
+  for (const p of paths) {
+    const root = [lib?.roots.global, lib?.roots.project].find(r => isUnder(r, p))
+    if (!root || !(await landsInside($, root, p))) return false
+  }
+  return true
+}
+
+async function landsInside($: EngineInterface, root: string, path: string): Promise<boolean> {
+  const rootReal = await realLanding($, root)
+  const pathReal = await realLanding($, path)
+  return rootReal !== null && pathReal !== null && isUnder(rootReal, pathReal)
+}
+
+async function realLanding($: EngineInterface, path: string): Promise<string | null> {
+  let probe = path
+  for (;;) {
+    const st = await $.fs.stat(probe, { resolve: true }).catch(() => undefined)
+    if (st?.realPath) return st.realPath.replace(/\/+$/, '') + (probe === '/' ? path : path.slice(probe.length))
+    if (st || probe === '/' || !probe.includes('/')) return null
+    probe = probe.slice(0, probe.lastIndexOf('/')) || '/'
+  }
 }
 
 async function moveFile($: EngineInterface, from: string, to: string): Promise<boolean> {

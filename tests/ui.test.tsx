@@ -12,13 +12,13 @@ const FIXTURES: Record<string, string> = {
   [`${ROOT}/broken.md`]: '---\ndesc: no title here\n---\nbody\n',
 }
 
-type World = { files: Map<string, { text: string; mtimeMs: number }>; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
+type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
 function world(on: On, options: { isPlaced?: boolean; env?: Record<string, string>; project?: string } = {}): World {
-  const w: World = { files: new Map(), fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
+  const w: World = { files: new Map(), links: new Map(), fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
-  const isDir = (p: string) => [...w.files.keys()].some(f => f.startsWith(`${p}/`))
+  const isDir = (p: string) => p === '/' || [...w.files.keys()].some(f => f.startsWith(`${p}/`))
   mock.env(on, options.env ?? { HOME: '/home/test', CYBERINE_SNIPPETS_DIR: ROOT })
   mock.store(on)
   on('fs.exists', async ($, e) => ({ value: w.files.has(e.path) || isDir(e.path) }))
@@ -31,16 +31,24 @@ function world(on: On, options: { isPlaced?: boolean; env?: Record<string, strin
     }
     return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: kind === 'file' ? (w.files.get(`${e.path}/${name}`)?.mtimeMs ?? 0) : 0, isLink: false })) }
   })
+  const realOf = (p: string) => {
+    for (const [link, target] of w.links) if (p === link || p.startsWith(`${link}/`)) return target + p.slice(link.length)
+    return p
+  }
   on('fs.read', async ($, e) => {
-    const f = w.files.get(e.path)
+    const f = w.files.get(realOf(e.path))
     return f ? { value: f.text } : { deny: `ENOENT ${e.path}` }
   })
   on('fs.stat', async ($, e) => {
-    const f = w.files.get(e.path)
-    return f ? { value: { kind: 'file' as const, size: f.text.length, mtimeMs: f.mtimeMs, isLink: false } } : { deny: `ENOENT ${e.path}` }
+    const real = realOf(e.path)
+    const f = w.files.get(real)
+    const isLink = w.links.has(e.path)
+    if (!f && !isDir(real) && !isLink) return { deny: `ENOENT ${e.path}` }
+    const at = e.resolve ? { realPath: real } : {}
+    return { value: { kind: f ? 'file' as const : 'dir' as const, size: f?.text.length ?? 0, mtimeMs: f?.mtimeMs ?? 0, isLink, ...at } }
   })
   on('fs.write', async ($, e) => {
-    w.files.set(e.path, { text: e.text, mtimeMs: tick++ })
+    w.files.set(realOf(e.path), { text: e.text, mtimeMs: tick++ })
     return { value: undefined }
   })
   on('process.run', async ($, e) => {
@@ -402,6 +410,32 @@ describe('manage', () => {
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
     expect(await ui.find({ key: 'stale-reload' })).toBeUndefined()
     expect(await ui.find({ key: 'reload' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a .trash folder that is a link leading outside the snippet folder stops Delete', async ($, on) => {
+    const w = world(on)
+    w.links.set(`${ROOT}/.trash`, '/outside/trash')
+    await $.command.run(run('plan'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'del' })
+    await ui.press({ key: 'confirm' })
+    expect([...w.files.keys()].filter(p => p.startsWith('/outside'))).toEqual([])
+    expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toMatch(/Before writing code:/)
+    await ui.unmount()
+  })
+
+  test('a subfolder that is a link leading outside the snippet folder stops a save there', async ($, on) => {
+    const w = world(on)
+    w.links.set(`${ROOT}/sub`, '/outside/sub')
+    w.files.set('/outside/sub/write-tests.md', w.files.get(`${ROOT}/sub/write-tests.md`)!)
+    await $.command.run(run('reload'))
+    await $.command.run(run('write'))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+    await ui.press({ key: 'details' })
+    await ui.press({ key: 'pin' })
+    expect(w.files.get('/outside/sub/write-tests.md')?.text).not.toMatch(/pin: true/)
     await ui.unmount()
   })
 

@@ -4,7 +4,9 @@ Cyberine Snippets is a Claude Code plugin that runs only on your computer. This 
 
 ## What it collects
 
-Nothing. The plugin has no telemetry, makes no network requests, and sends no data to its author, to Anthropic, or to anyone else.
+The plugin itself collects nothing: it has no telemetry, makes no network requests, and sends no data to its author or to anyone else.
+
+Text the plugin puts into the prompt box is then a draft like any you type, and a snippet whose mode is `submit` is submitted as a prompt after you pick it. Once a prompt is submitted, Claude Code sends it to the model as it does every prompt, under Anthropic's privacy policy (https://www.anthropic.com/legal/privacy). On Claude Code before 2.1.300, Claude Code itself also recorded a draft held by `;;` and a snippet body saved from the prompt box in its own OpenTelemetry `user_prompt` event and in session title requests, although the plugin did not send them; Claude Code 2.1.300 fixed that.
 
 ## What it reads locally
 

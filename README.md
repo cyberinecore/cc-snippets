@@ -4,7 +4,7 @@
 
 A Claude Code plugin that keeps your saved prompts as plain Markdown files and puts them in the prompt box from a keyboard picker. Type `/snippets` (or the short `/sn`), or `;;` anywhere in a prompt you are writing, find a snippet, press Enter. Snippets are files, not skills, so they cost the model no context until you use one, and you can create, edit, duplicate, move, pin, delete and restore them without leaving the session.
 
-Requires Claude Code 2.1.287 or newer; on 2.1.300 or newer the body-edit hint also shows in the prompt box, recalling a history entry pauses a body edit until you come back to your edited text, and clearing the box stops it. The plugin is a mod (function hooks), which loads in the terminal and in the Desktop app's Code tab. The VS Code chat panel and `claude -p` run its commands but draw no pane, so use `/sn list` there.
+Requires Claude Code 2.1.287 or newer; on 2.1.300 or newer the body-edit hint also shows in the prompt box, recalling a history entry pauses a body edit until you come back to your edited text, and clearing the box stops it. The plugin is a mod (function hooks), which loads in the terminal, the Desktop app's Code tab and the VS Code extension; the VS Code chat panel draws its pane from extension 2.1.299 (2.1.304 for a session that does not fetch feature flags, such as one on Amazon Bedrock). `claude -p` runs its commands but draws no pane, so use `/sn list` there.
 
 ![The picker docked beside the transcript: search, numbered results, a preview and the tools row](assets/screenshot-picker-dock.png)
 
@@ -162,7 +162,8 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
   - `prompt.*`: acts only on `prompt.change` (Claude Code 2.1.300 or newer): when the box changes without a typed edit, it drops a pending `{{cursor}}` redirect, a clear or an emptied box stops a body edit without saving, a recalled history entry pauses it, and getting the edited text back resumes it. Every other prompt event passes through unchanged. It hooks the namespace with a matcher on the fields only `prompt.change` carries (`cursor` and `origin`) rather than `prompt.change` by name, so the plugin still loads on older versions, which do not know that event, and its module is not called on the other prompt events.
   - `prompt.submit`: only while you are editing a snippet body, or while the picker holds a `;;` draft, Enter in the prompt box saves the body or is held back instead of sending; every other prompt passes through unchanged.
 - What it stores, in the plugin's own Claude Code store: a per-slug usage count and time of last use, to order results; the sort choice; the results per page; the order of pinned snippets, by file path; and the placeholder values you last typed per snippet, to prefill the form. Placeholder values are whatever you typed, so keep secrets out of placeholders.
-- What it sends off the machine: nothing. It has no network code. See `PRIVACY.md`.
+- What it sends off the machine: nothing of its own. It has no network code. A snippet you fill into the prompt box, or a `submit` snippet you pick, becomes a prompt that Claude Code sends to the model like any prompt you type. See `PRIVACY.md`.
+- Overwrites: every save, move and restore checks that the target file does not exist yet, and that the target and its folders land inside the snippet folders once symbolic links are followed. Claude Code's file API has no exclusive create, so two sessions saving the same new slug in the same instant can still overwrite one another.
 
 ## Troubleshooting
 
@@ -171,7 +172,7 @@ The picker keeps the snippets it loaded. When you open it, it compares the file 
 - A snippet is missing: run `/sn doctor`, fix the file, then `/sn reload`.
 - "changed on disk since it was loaded": another editor changed the file; press Reload in the picker (or run `/sn reload`) and repeat the edit.
 - Text did not land in the prompt: the box refuses fills while another dialog holds the keys; close it and pick again.
-- Claude cannot create a snippet for you ("is in another repository" or a similar block): a guard such as a cross-repository write hook stops Claude's own Write tool when the snippet folder sits inside another git repository, for example a `~/.claude` kept in git. The plugin's own saves are not affected. Write the text in the prompt box, type `;;`, press Up and choose "Save this draft as a snippet"; or set Snippet folder in `/config` to a folder outside any repository, such as `~/.local/share/cyberine-snippets`.
+- Claude cannot create a snippet for you ("is in another repository" or a similar block): a guard you configured, such as a cross-repository write hook, stops Claude's own Write tool when the snippet folder sits inside another git repository, for example a `~/.claude` kept in git. Respect the guard: set Snippet folder in `/config` to a folder the guard allows, such as `~/.local/share/cyberine-snippets`, or change the guard's own settings if you want Claude to write there.
 
 ## Develop
 

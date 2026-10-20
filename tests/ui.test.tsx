@@ -493,6 +493,18 @@ describe('manage', () => {
     expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toMatch(/\nBody!\n$/)
   })
 
+  test('text an undo left is the edited text that resumes body editing', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: 'Before writing', cursor: 14, origin: { kind: 'undo' } })
+    await changeOf($.prompt)({ text: 'an old prompt from history', cursor: 26, origin: { kind: 'history' } })
+    await changeOf($.prompt)({ text: 'Before writing', cursor: 14, origin: { kind: 'history' } })
+    const r = await $.prompt.submit({ text: 'Before writing', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toMatch(/saved the body of "Plan before coding"/)
+  })
+
   test('coming back to text other than the edited text keeps body editing paused', async ($, on) => {
     if (!hasPromptChange($.prompt)) return
     const w = world(on)

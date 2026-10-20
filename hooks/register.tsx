@@ -1546,6 +1546,8 @@ export const register: Register = (on, options) => {
       await $.state.set(bodyEditRef, { ...editing, paused: true })
       $.ui.status(`Paused editing snippet "${editing.title}": come back to your edited text to resume, /sn cancel stops`)
       $.ui.toast(`snippets: paused editing "${editing.title}"; Enter sends this prompt to Claude. Come back to your edited text to resume.`)
+    } else if (change.origin.kind !== 'history' && !editing.paused && change.text !== editing.text) {
+      await $.state.set(bodyEditRef, { ...editing, text: change.text })
     }
     return next(e)
   })

@@ -1527,6 +1527,12 @@ export const register: Register = (on, options) => {
     await endBodyEdit($, true)
     await $.prompt.fill({ text: '', mode: 'replace' })
     return { drop: `snippets: saved the body of "${r.saved.title}" (${r.saved.path}); nothing was sent to Claude.` }
+  }).catch(async ($, e, next) => {
+    if (next.called || e.origin.kind !== 'composer' || e.text.trimStart().startsWith('/')) return next(e)
+    const editing = await $.state.get(bodyEditRef).then(r => r.value, () => true)
+    const held = await $.state.get(heldRef).then(r => r.value, () => true)
+    if (!editing && !held) return next(e)
+    return { drop: `snippets: could not save or hold this text (${next.error.kind}); it was not sent. Press Enter to try again, or /sn cancel to stop editing.` }
   })
 
   on('prompt.edit', async ($, e, next) => {

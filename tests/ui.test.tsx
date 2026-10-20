@@ -12,10 +12,10 @@ const FIXTURES: Record<string, string> = {
   [`${ROOT}/broken.md`]: '---\ndesc: no title here\n---\nbody\n',
 }
 
-type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; reads: string[]; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
+type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; reads: string[]; failWrites: boolean; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
 function world(on: On, options: { isPlaced?: boolean; env?: Record<string, string>; project?: string } = {}): World {
-  const w: World = { files: new Map(), links: new Map(), reads: [], fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
+  const w: World = { files: new Map(), links: new Map(), reads: [], failWrites: false, fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
   const isDir = (p: string) => p === '/' || [...w.files.keys()].some(f => f.startsWith(`${p}/`))
@@ -50,6 +50,7 @@ function world(on: On, options: { isPlaced?: boolean; env?: Record<string, strin
     return { value: { kind: f ? 'file' as const : 'dir' as const, size: f?.text.length ?? 0, mtimeMs: f?.mtimeMs ?? 0, isLink, ...at } }
   })
   on('fs.write', async ($, e) => {
+    if (w.failWrites) return { deny: `EACCES ${e.path}` }
     w.files.set(realOf(e.path), { text: e.text, mtimeMs: tick++ })
     return { value: undefined }
   })
@@ -541,6 +542,18 @@ describe('manage', () => {
     const again = await $.prompt.submit({ text: 'My edit', wait: false, origin: { kind: 'composer' } })
     expect(again.drop).toMatch(/not saved/)
     expect(w.submits).toHaveLength(0)
+  })
+
+  test('a save that throws while a body is edited drops the prompt instead of sending the body', async ($, on) => {
+    const w = world(on)
+    await startBodyEdit($, w)
+    w.failWrites = true
+    const r = await $.prompt.submit({ text: 'Private draft', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toMatch(/not sent/)
+    expect(w.submits).toHaveLength(0)
+    w.failWrites = false
+    const after = await $.prompt.submit({ text: 'Private draft', wait: false, origin: { kind: 'composer' } })
+    expect(after.drop).toMatch(/saved the body/)
   })
 
   test("the plugin's own fill and a non-empty undo keep body editing", async ($, on) => {

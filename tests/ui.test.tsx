@@ -461,11 +461,26 @@ describe('manage', () => {
   test('a clear that is not a typed edit stops body editing', async ($, on) => {
     if (!hasPromptChange($.prompt)) return
     const w = world(on)
+    const clock = mock.clock(on)
     engineChange(on)
     await startBodyEdit($, w)
     await changeOf($.prompt)({ text: '', cursor: 0, origin: { kind: 'clear' } })
+    await clock.advance(250)
     const r = await $.prompt.submit({ text: 'typed after the clear', wait: false, origin: { kind: 'composer' } })
     expect(r.drop).toBeUndefined()
+  })
+
+  test('the clear raised by the Enter that saves a body does not stop the edit before the save', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    const clock = mock.clock(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: '', cursor: 0, origin: { kind: 'clear' } })
+    const r = await $.prompt.submit({ text: 'Saved through the clear', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toMatch(/saved the body of "Plan before coding"/)
+    await clock.advance(250)
+    expect((await $.command.run(run('cancel'))).text).toBe('snippets: nothing was being edited')
   })
 
   test("the plugin's own fill and a non-empty undo keep body editing", async ($, on) => {
@@ -528,9 +543,11 @@ describe('manage', () => {
   test('/sn cancel after a clear already stopped the edit says so instead of "nothing was being edited"', async ($, on) => {
     if (!hasPromptChange($.prompt)) return
     const w = world(on)
+    const clock = mock.clock(on)
     engineChange(on)
     await startBodyEdit($, w)
     await changeOf($.prompt)({ text: '', cursor: 0, origin: { kind: 'clear' } })
+    await clock.advance(250)
     expect((await $.command.run(run('cancel'))).text).toBe('snippets: editing "Plan before coding" had already stopped; nothing was saved')
   })
 

@@ -55,6 +55,7 @@ const SNIPPETS_DIR_KEY = 'cyberine-snippets.snippets_dir'
 const PLUGIN_NAME = 'cyberine-snippets'
 const VIRTUAL_TEXT_PATCH = 300
 const PROMPT_CHANGE = 'prompt.change'
+const CLEAR_GRACE_MS = 250
 
 type PromptChangeLike = { text: string; cursor: number; origin: { kind: string; name?: string } }
 
@@ -707,6 +708,13 @@ async function editBodyInPrompt($: EngineInterface, target: Saved): Promise<void
 
 function editingStatus(title: string): string {
   return `Editing snippet "${title}": Enter saves it, /sn cancel stops`
+}
+
+async function endAfterClear($: EngineInterface, path: string): Promise<void> {
+  const { value: editing } = await $.state.get(bodyEditRef)
+  if (!editing || editing.path !== path) return
+  await endBodyEdit($)
+  $.ui.toast(`snippets: stopped editing "${editing.title}"; nothing was saved`)
 }
 
 async function endBodyEdit($: EngineInterface, saved = false): Promise<void> {
@@ -1537,8 +1545,8 @@ export const register: Register = (on, options) => {
     const { value: editing } = await $.state.get(bodyEditRef)
     if (!editing) return next(e)
     if (change.text === '' || change.origin.kind === 'clear') {
-      await endBodyEdit($)
-      $.ui.toast(`snippets: stopped editing "${editing.title}"; nothing was saved`)
+      // DECISION: a clear ends a body edit after CLEAR_GRACE_MS, not at once, because the Enter that saves raises this clear before prompt.submit runs.
+      $.clock.after(CLEAR_GRACE_MS, () => { void endAfterClear($, editing.path) })
     } else if (change.origin.kind === 'history' && editing.paused && change.text === editing.text) {
       await $.state.set(bodyEditRef, { ...editing, paused: false })
       $.ui.status(editingStatus(editing.title))

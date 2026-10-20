@@ -2,6 +2,11 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.15] - 2026-10-20
+
+- The `prompt.*` hook now carries a matcher, so Claude Code calls the plugin only on `prompt.change` instead of on every prompt event (each typing burst, each prompt section and attachment). Behaviour is unchanged.
+- README Troubleshooting explains the "its prompt.section hook was skipped" lines shown on machines where Claude Code seats `cc-plugin-sec-default` first: they are harmless, and the plugin cannot turn them off yet.
+
 ## [0.2.14] - 2026-10-15
 
 - While you edit a snippet body in the prompt box, recalling a history entry or clearing the box stops the edit, so the next Enter no longer saves that text over the snippet. Needs Claude Code 2.1.300 or newer; older versions keep the previous behaviour.

@@ -1504,7 +1504,7 @@ export const register: Register = (on, options) => {
     return { ...result, decorations: [...(result.decorations ?? []), bodyEditHint(editing.title, result.text)] }
   })
 
-  on('prompt.*', async ($, e, next) => {
+  on('prompt.*', { cursor: /^/, origin: { kind: /^/ } }, async ($, e, next) => {
     if (next.event !== PROMPT_CHANGE || !next.is(PROMPT_CHANGE, e)) return next(e)
     const change = e as unknown as PromptChangeLike
     if (change.origin.kind === 'plugin' && change.origin.name === PLUGIN_NAME) return next(e)

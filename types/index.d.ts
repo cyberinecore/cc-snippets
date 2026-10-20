@@ -63,7 +63,9 @@ export type Filter = { source: 'all' | SnippetSource; tag: string }
 
 export type HeldDraft = { text: string; cursor: number }
 
-export type BodyEdit = { slug: string; title: string; path: string }
+export type BodyEdit = { slug: string; title: string; path: string; text: string; paused: boolean }
+
+export type EndedEdit = { title: string }
 
 export type InlineCap = { bodyRows: number; viewportRows: number }
 
@@ -84,6 +86,7 @@ declare module 'claude-code' {
       formError: string
       pendingCursor: PendingCursor | null
       bodyEdit: BodyEdit | null
+      endedEdit: EndedEdit | null
       held: HeldDraft | null
       stale: boolean
       notice: string

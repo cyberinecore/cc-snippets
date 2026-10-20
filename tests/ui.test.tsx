@@ -479,6 +479,66 @@ describe('manage', () => {
     expect(r.drop).toMatch(/saved the body of "Plan before coding"/)
   })
 
+  test('coming back from a recalled entry to the edited text resumes body editing, so Enter saves it', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+    await startBodyEdit($, w)
+    await editOf($.prompt)({ origin: { kind: 'composer' }, text: 'Body', cursor: 4, start: 4, end: 4, inputText: '!' })
+    await changeOf($.prompt)({ text: 'an old prompt from history', cursor: 26, origin: { kind: 'history' } })
+    await changeOf($.prompt)({ text: 'Body!', cursor: 5, origin: { kind: 'history' } })
+    const r = await $.prompt.submit({ text: 'Body!', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toMatch(/saved the body of "Plan before coding"/)
+    expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toMatch(/\nBody!\n$/)
+  })
+
+  test('coming back to text other than the edited text keeps body editing paused', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: 'an old prompt from history', cursor: 26, origin: { kind: 'history' } })
+    await changeOf($.prompt)({ text: 'a newer prompt from history', cursor: 27, origin: { kind: 'history' } })
+    const r = await $.prompt.submit({ text: 'a newer prompt from history', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBeUndefined()
+    expect(w.files.get(`${ROOT}/multi-line.md`)?.text).toMatch(/Before writing code:/)
+  })
+
+  test('/sn cancel while editing says nothing was saved', async ($, on) => {
+    const w = world(on)
+    await startBodyEdit($, w)
+    expect((await $.command.run(run('cancel'))).text).toBe('snippets: stopped editing "Plan before coding"; nothing was saved')
+    const r = await $.prompt.submit({ text: 'a normal prompt', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBeUndefined()
+  })
+
+  test('/sn cancel after a clear already stopped the edit says so instead of "nothing was being edited"', async ($, on) => {
+    if (!hasPromptChange($.prompt)) return
+    const w = world(on)
+    engineChange(on)
+    await startBodyEdit($, w)
+    await changeOf($.prompt)({ text: '', cursor: 0, origin: { kind: 'clear' } })
+    expect((await $.command.run(run('cancel'))).text).toBe('snippets: editing "Plan before coding" had already stopped; nothing was saved')
+  })
+
+  test('/sn cancel after a saved body edit says nothing was being edited', async ($, on) => {
+    const w = world(on)
+    await startBodyEdit($, w)
+    await $.prompt.submit({ text: 'Rewritten body', wait: false, origin: { kind: 'composer' } })
+    expect((await $.command.run(run('cancel'))).text).toBe('snippets: nothing was being edited')
+  })
+
+  test('the Claude Code version is read once per session, not on every keystroke of a body edit', async ($, on) => {
+    const w = world(on)
+    let reads = 0
+    on('session.version', async () => (reads++, { value: { version: '2.1.299', base: '2.1.299' } }))
+    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+    await startBodyEdit($, w)
+    for (const ch of 'abc') await editOf($.prompt)({ origin: { kind: 'composer' }, text: 'Body', cursor: 4, start: 4, end: 4, inputText: ch })
+    expect(reads).toBe(1)
+  })
+
   test('while a body is edited the prompt box shows the save hint as virtual text, never in the text', async ($, on) => {
     if (!hasPromptChange($.prompt)) return
     const w = world(on)

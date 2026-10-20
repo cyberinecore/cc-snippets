@@ -2,6 +2,12 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.16] - 2026-10-20
+
+- Recalling a history entry while you edit a snippet body now pauses the edit instead of ending it. Enter on the recalled entry still sends it to Claude and ends the edit; coming back to your edited text (Down) resumes the edit, so the next Enter saves it again. Needs Claude Code 2.1.300 or newer.
+- `/sn cancel` says "nothing was saved" when it stops an edit, and, when a clear had already stopped the edit, says so instead of "nothing was being edited".
+- The Claude Code version is read once per session instead of on every keystroke while a body is edited.
+
 ## [0.2.15] - 2026-10-20
 
 - The `prompt.*` hook now carries a matcher, so Claude Code calls the plugin only on `prompt.change` instead of on every prompt event (each typing burst, each prompt section and attachment). Behaviour is unchanged.

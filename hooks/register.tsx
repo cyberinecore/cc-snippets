@@ -19,6 +19,7 @@ const draftRef = { plugin: 'cyberine-snippets', key: 'draft' } as const
 const formErrorRef = { plugin: 'cyberine-snippets', key: 'formError' } as const
 const pendingCursorRef = { plugin: 'cyberine-snippets', key: 'pendingCursor' } as const
 const bodyEditRef = { plugin: 'cyberine-snippets', key: 'bodyEdit' } as const
+const endedEditRef = { plugin: 'cyberine-snippets', key: 'endedEdit' } as const
 const heldRef = { plugin: 'cyberine-snippets', key: 'held' } as const
 const staleRef = { plugin: 'cyberine-snippets', key: 'stale' } as const
 const noticeRef = { plugin: 'cyberine-snippets', key: 'notice' } as const
@@ -58,6 +59,7 @@ const PROMPT_CHANGE = 'prompt.change'
 type PromptChangeLike = { text: string; cursor: number; origin: { kind: string; name?: string } }
 
 let registeredOptions: PluginOptions = {}
+let virtualTextSupport: Promise<boolean> | null = null
 const HOTKEY_ROWS = 10
 const DIRECT = '!'
 const REFOCUS_MARK = '#refocus-'
@@ -673,7 +675,12 @@ async function openTrash($: EngineInterface): Promise<{ text?: string }> {
   return opened
 }
 
-async function hasVirtualText($: EngineInterface): Promise<boolean> {
+function hasVirtualText($: EngineInterface): Promise<boolean> {
+  virtualTextSupport ??= readVirtualText($)
+  return virtualTextSupport
+}
+
+async function readVirtualText($: EngineInterface): Promise<boolean> {
   const v = await $.session.version().catch(() => null)
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v?.base ?? v?.version ?? '')
   if (!m) return false
@@ -693,12 +700,19 @@ async function editBodyInPrompt($: EngineInterface, target: Saved): Promise<void
     $.ui.toast(`snippets: the prompt box did not take the body (${filled.refusal ?? 'unknown'})`)
     return
   }
-  await $.state.set(bodyEditRef, { slug: target.slug, title: target.title, path: target.path })
-  $.ui.status(`Editing snippet "${target.title}": Enter saves it, /sn cancel stops`)
+  await $.state.set(bodyEditRef, { slug: target.slug, title: target.title, path: target.path, text: target.body, paused: false })
+  await $.state.set(endedEditRef, null)
+  $.ui.status(editingStatus(target.title))
 }
 
-async function endBodyEdit($: EngineInterface): Promise<void> {
+function editingStatus(title: string): string {
+  return `Editing snippet "${title}": Enter saves it, /sn cancel stops`
+}
+
+async function endBodyEdit($: EngineInterface, saved = false): Promise<void> {
+  const { value: editing } = await $.state.get(bodyEditRef)
   await $.state.set(bodyEditRef, null)
+  await $.state.set(endedEditRef, editing && !saved ? { title: editing.title } : null)
   $.ui.status(undefined)
 }
 
@@ -1396,8 +1410,12 @@ async function runCommand($: EngineInterface, args: string): Promise<{ text?: st
       return { text: HELP }
     case 'cancel': {
       const { value: editing } = await $.state.get(bodyEditRef)
-      await endBodyEdit($)
-      return { text: editing ? `snippets: stopped editing "${editing.title}"; the prompt text is left as is` : 'snippets: nothing was being edited' }
+      if (editing) {
+        await endBodyEdit($)
+        return { text: `snippets: stopped editing "${editing.title}"; nothing was saved` }
+      }
+      const { value: ended } = await $.state.get(endedEditRef)
+      return { text: ended ? `snippets: editing "${ended.title}" had already stopped; nothing was saved` : 'snippets: nothing was being edited' }
     }
     case 'trash':
       await $.state.set(heldRef, null)
@@ -1419,7 +1437,9 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.state.set(pendingCursorRef, null)
     await $.state.set(bodyEditRef, null)
+    await $.state.set(endedEditRef, null)
     await $.state.set(heldRef, null)
+    virtualTextSupport = null
     await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | slug! | new | trash | cancel | reload | rows | list | doctor | help]' })
     await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | slug! | new | trash | cancel | reload | rows | list | doctor | help]' })
     const library = await reload($)
@@ -1460,6 +1480,10 @@ export const register: Register = (on, options) => {
       return { drop: 'snippets: the picker is holding your draft; finish there, or press Esc in the picker to get the draft back. Nothing was sent.' }
     }
     const { value: editing } = await $.state.get(bodyEditRef)
+    if (editing?.paused && e.origin.kind === 'composer' && !e.text.trimStart().startsWith('/')) {
+      await endBodyEdit($)
+      return next(e)
+    }
     if (!editing || e.origin.kind !== 'composer' || e.text.trimStart().startsWith('/')) return next(e)
     const s = (await getLibrary($))?.all.find(x => x.path === editing.path)
     if (!s) {
@@ -1468,7 +1492,7 @@ export const register: Register = (on, options) => {
     }
     const r = await saveDraft($, 'edit', s.path, { ...draftFrom(s, 'edit'), body: e.text })
     if (!r.ok) return { drop: `snippets: not saved: ${r.error}. Your text was not sent; /sn cancel stops editing.` }
-    await endBodyEdit($)
+    await endBodyEdit($, true)
     await $.prompt.fill({ text: '', mode: 'replace' })
     return { drop: `snippets: saved the body of "${r.saved.title}" (${r.saved.path}); nothing was sent to Claude.` }
   })
@@ -1495,11 +1519,12 @@ export const register: Register = (on, options) => {
     }
     const result = await next(e)
     const { value: editing } = await $.state.get(bodyEditRef)
-    if (!editing) return result
+    if (!editing || editing.paused) return result
     if (result.text === '') {
       await endBodyEdit($)
       return result
     }
+    if (result.text !== editing.text) await $.state.set(bodyEditRef, { ...editing, text: result.text })
     if (!(await hasVirtualText($))) return result
     return { ...result, decorations: [...(result.decorations ?? []), bodyEditHint(editing.title, result.text)] }
   })
@@ -1510,9 +1535,17 @@ export const register: Register = (on, options) => {
     if (change.origin.kind === 'plugin' && change.origin.name === PLUGIN_NAME) return next(e)
     await $.state.set(pendingCursorRef, null)
     const { value: editing } = await $.state.get(bodyEditRef)
-    if (editing && (change.text === '' || change.origin.kind === 'history' || change.origin.kind === 'clear')) {
+    if (!editing) return next(e)
+    if (change.text === '' || change.origin.kind === 'clear') {
       await endBodyEdit($)
       $.ui.toast(`snippets: stopped editing "${editing.title}"; nothing was saved`)
+    } else if (change.origin.kind === 'history' && editing.paused && change.text === editing.text) {
+      await $.state.set(bodyEditRef, { ...editing, paused: false })
+      $.ui.status(editingStatus(editing.title))
+    } else if (change.origin.kind === 'history' && !editing.paused) {
+      await $.state.set(bodyEditRef, { ...editing, paused: true })
+      $.ui.status(`Paused editing snippet "${editing.title}": come back to your edited text to resume, /sn cancel stops`)
+      $.ui.toast(`snippets: paused editing "${editing.title}"; Enter sends this prompt to Claude. Come back to your edited text to resume.`)
     }
     return next(e)
   })

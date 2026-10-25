@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.17] - 2026-10-25
+
+- Needs Claude Code 2.1.300 or newer; use 0.2.16 on 2.1.287 to 2.1.299. The plugin now hooks `prompt.change` by name instead of every prompt event, so Claude Code no longer prints `its prompt.section hook was skipped` (also `prompt.context`, `prompt.compose`, `prompt.attachment`) on machines where it seats `cc-plugin-sec-default` first, such as under managed settings or a Team or Enterprise organization.
+
 ## [0.2.16] - 2026-10-20
 
 - Recalling a history entry while you edit a snippet body now pauses the edit instead of ending it. Enter on the recalled entry still sends it to Claude and ends the edit; coming back to your edited text (Down) resumes the edit, so the next Enter saves it again. Needs Claude Code 2.1.300 or newer.

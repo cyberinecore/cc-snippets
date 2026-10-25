@@ -54,7 +54,6 @@ const SNIPPETS_DIR_KEY = 'cyberine-snippets.snippets_dir'
 
 const PLUGIN_NAME = 'cyberine-snippets'
 const VIRTUAL_TEXT_PATCH = 300
-const PROMPT_CHANGE = 'prompt.change'
 const CLEAR_GRACE_MS = 250
 
 type PromptChangeLike = { text: string; cursor: number; origin: { kind: string; name?: string } }
@@ -1567,8 +1566,7 @@ export const register: Register = (on, options) => {
     return { ...result, decorations: [...(result.decorations ?? []), bodyEditHint(editing.title, result.text)] }
   })
 
-  on('prompt.*', { cursor: /^/, origin: { kind: /^/ } }, async ($, e, next) => {
-    if (next.event !== PROMPT_CHANGE || !next.is(PROMPT_CHANGE, e)) return next(e)
+  on('prompt.change', async ($, e, next) => {
     const change = e as unknown as PromptChangeLike
     if (change.origin.kind === 'plugin' && change.origin.name === PLUGIN_NAME) return next(e)
     await $.state.set(pendingCursorRef, null)

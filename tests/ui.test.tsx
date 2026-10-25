@@ -490,7 +490,7 @@ describe('manage', () => {
   }
   const changeOf = (p: unknown) => (p as ChangeCall).change
   const hasPromptChange = (p: unknown) => typeof (p as Partial<ChangeCall>).change === 'function'
-  const engineChange = (on: On) => on('prompt.*', async ($, e, next) => (next.event === 'prompt.change' ? { text: (e as { text: string }).text } : next(e)))
+  const engineChange = (on: On) => on('prompt.change', async ($, e) => ({ text: (e as { text: string }).text }))
 
   test('a recalled history entry stops body editing, so Enter sends it instead of saving it', async ($, on) => {
     if (!hasPromptChange($.prompt)) return

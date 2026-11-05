@@ -12,10 +12,10 @@ const FIXTURES: Record<string, string> = {
   [`${ROOT}/broken.md`]: '---\ndesc: no title here\n---\nbody\n',
 }
 
-type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; reads: string[]; failWrites: boolean; fills: string[]; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
+type World = { files: Map<string, { text: string; mtimeMs: number }>; links: Map<string, string>; reads: string[]; failWrites: boolean; fills: string[]; cursors: Array<number | undefined>; honorCursor: boolean; decorations: unknown[]; submits: string[]; box: { text: string; cursor: number }; opens: number; focuses: string[] }
 
 function world(on: On, options: { isPlaced?: boolean; env?: Record<string, string>; project?: string } = {}): World {
-  const w: World = { files: new Map(), links: new Map(), reads: [], failWrites: false, fills: [], decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
+  const w: World = { files: new Map(), links: new Map(), reads: [], failWrites: false, fills: [], cursors: [], honorCursor: true, decorations: [], submits: [], box: { text: '', cursor: 0 }, opens: 0, focuses: [] }
   let tick = 1
   for (const [p, text] of Object.entries(FIXTURES)) w.files.set(p, { text, mtimeMs: tick++ })
   const isDir = (p: string) => p === '/' || [...w.files.keys()].some(f => f.startsWith(`${p}/`))
@@ -77,8 +77,10 @@ function world(on: On, options: { isPlaced?: boolean; env?: Record<string, strin
   on('prompt.fill', async ($, e) => {
     w.fills.push(e.text)
     if (e.decorations) w.decorations.push(...e.decorations)
-    w.box = { text: e.text, cursor: e.text.length }
-    return { isFilled: true }
+    w.cursors.push(e.cursor)
+    const cursor = w.honorCursor && e.cursor !== undefined ? Math.min(e.cursor, e.text.length) : e.text.length
+    w.box = { text: e.text, cursor }
+    return { isFilled: true, text: e.text, cursor }
   })
   on('prompt.submit', async ($, e) => {
     w.submits.push(e.text)
@@ -681,6 +683,85 @@ describe('insert at the caret with ;;', () => {
     await ui.press({ key: `r:${ROOT}/multi-line.md` })
     expect(w.fills[w.fills.length - 1]).toBe('fix Before writing code:\n1. Restate the goal.\n2. List the files.tail')
     await ui.unmount()
+  })
+
+  describe('the caret after the snippet lands', () => {
+    const version = (on: On, v: string) => on('session.version', async () => ({ value: { version: v, base: v } }))
+    const pendingWrites = (on: On) => {
+      const written: unknown[] = []
+      on('state.set', async ($, e, next) => {
+        if (e.plugin === PLUGIN && e.key === 'pendingCursor' && e.value !== null) written.push(e.value)
+        return next(e)
+      })
+      return written
+    }
+    const landed = 'fix Before writing code:\n1. Restate the goal.\n2. List the files.tail'
+    const caret = landed.length - 'tail'.length
+
+    const pickInto = async ($: Parameters<TestBody>[0], on: On, v: string, honorCursor = true) => {
+      const w = world(on)
+      w.honorCursor = honorCursor
+      const pending = pendingWrites(on)
+      version(on, v)
+      const clock = mock.clock(on)
+      on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+      await $.command.run(run('reload'))
+      w.box = { text: 'fix ;tail', cursor: 5 }
+      await editOf($.prompt)(typeTrigger('fix ;tail', 5))
+      await clock.advance(1)
+      const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
+      await ui.press({ key: `r:${ROOT}/multi-line.md` })
+      await ui.unmount()
+      return { w, pending }
+    }
+
+    test('on 2.1.318 one fill puts the caret in place and nothing is stored for prompt.edit', async ($, on) => {
+      const { w, pending } = await pickInto($, on, '2.1.318')
+      expect(w.fills[w.fills.length - 1]).toBe(landed)
+      expect(w.cursors[w.cursors.length - 1]).toBe(caret)
+      expect(w.box.cursor).toBe(caret)
+      expect(pending).toEqual([])
+    })
+
+    test('on 2.1.308 fill carries no cursor and the caret waits in state for the next prompt.edit', async ($, on) => {
+      const { w, pending } = await pickInto($, on, '2.1.308')
+      expect(w.fills[w.fills.length - 1]).toBe(landed)
+      expect(w.cursors[w.cursors.length - 1]).toBeUndefined()
+      expect(pending).toEqual([{ text: landed, cursor: caret, at: landed.length }])
+    })
+
+    test('on 2.1.318 a fill that did not move the caret falls back to the stored caret', async ($, on) => {
+      const { w, pending } = await pickInto($, on, '2.1.318', false)
+      expect(w.cursors[w.cursors.length - 1]).toBe(caret)
+      expect(pending).toEqual([{ text: landed, cursor: caret, at: landed.length }])
+    })
+
+    test('a draft held for the picker goes back with its caret in one fill on 2.1.318', async ($, on) => {
+      const newer = world(on, { isPlaced: false })
+      const pending = pendingWrites(on)
+      version(on, '2.1.318')
+      const clock = mock.clock(on)
+      on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+      await $.command.run(run('reload'))
+      await editOf($.prompt)(typeTrigger('keep ;this', 6))
+      await clock.advance(1)
+      expect(newer.fills[newer.fills.length - 1]).toBe('keep this')
+      expect(newer.cursors[newer.cursors.length - 1]).toBe(5)
+      expect(pending).toEqual([])
+    })
+
+    test('a draft held for the picker goes back through the stored caret on 2.1.308', async ($, on) => {
+      const older = world(on, { isPlaced: false })
+      const pending = pendingWrites(on)
+      version(on, '2.1.308')
+      const clock = mock.clock(on)
+      on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+      await $.command.run(run('reload'))
+      await editOf($.prompt)(typeTrigger('keep ;this', 6))
+      await clock.advance(1)
+      expect(older.cursors[older.cursors.length - 1]).toBeUndefined()
+      expect(pending).toEqual([{ text: 'keep this', cursor: 5, at: 9 }])
+    })
   })
 
   test('when the picker cannot open, the held draft goes back unchanged', async ($, on) => {

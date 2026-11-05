@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.18] - 2026-11-05
+
+- On Claude Code 2.1.309 or newer, a snippet or a restored draft lands with the caret in place in one step, using the `cursor` option of `$.prompt.fill`, instead of moving the caret on your next keystroke. On 2.1.300 to 2.1.308 the caret still moves on the next keystroke, and so does a fill the prompt box did not give the asked caret. The plugin still needs Claude Code 2.1.300 or newer.
+
 ## [0.2.17] - 2026-10-25
 
 - Needs Claude Code 2.1.300 or newer; use 0.2.16 on 2.1.287 to 2.1.299. The plugin now hooks `prompt.change` by name instead of every prompt event, so Claude Code no longer prints `its prompt.section hook was skipped` (also `prompt.context`, `prompt.compose`, `prompt.attachment`) on machines where it seats `cc-plugin-sec-default` first, such as under managed settings or a Team or Enterprise organization.

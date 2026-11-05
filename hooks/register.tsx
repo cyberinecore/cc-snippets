@@ -54,12 +54,13 @@ const SNIPPETS_DIR_KEY = 'cyberine-snippets.snippets_dir'
 
 const PLUGIN_NAME = 'cyberine-snippets'
 const VIRTUAL_TEXT_PATCH = 300
+const FILL_CURSOR_PATCH = 309
 const CLEAR_GRACE_MS = 250
 
 type PromptChangeLike = { text: string; cursor: number; origin: { kind: string; name?: string } }
 
 let registeredOptions: PluginOptions = {}
-let virtualTextSupport: Promise<boolean> | null = null
+let sessionPatch: Promise<number> | null = null
 const HOTKEY_ROWS = 10
 const DIRECT = '!'
 const REFOCUS_MARK = '#refocus-'
@@ -391,7 +392,7 @@ async function restoreHeld($: EngineInterface, why: string): Promise<void> {
   $.ui.log(`trigger: restore (${why}), held=${held ? 'yes' : 'no'}`, { to: 'debug' })
   if (!held) return
   await $.state.set(heldRef, null)
-  const filled = await $.prompt.fill({ text: held.text, mode: 'replace' })
+  const filled = await $.prompt.fill((await hasFillCursor($)) ? { text: held.text, mode: 'replace', cursor: held.cursor } : { text: held.text, mode: 'replace' })
   if (filled.isFilled && filled.cursor !== held.cursor) await $.state.set(pendingCursorRef, { text: filled.text, cursor: held.cursor, at: filled.cursor })
 }
 
@@ -419,9 +420,10 @@ async function applySnippet($: EngineInterface, s: Snippet, values: Record<strin
   const box = held ?? (await $.prompt.read())
   const hasDraft = box.text.length > 0
   const planned = insertAt(hasDraft ? box : { text: '', cursor: 0 }, rendered.text, rendered.cursor)
+  const place = (await hasFillCursor($)) ? { cursor: planned.caret } : {}
   const filled = held
-    ? await $.prompt.fill({ text: planned.text, mode: 'replace' })
-    : await $.prompt.fill({ text: rendered.text, mode: hasDraft ? 'insert' : 'replace' })
+    ? await $.prompt.fill({ text: planned.text, mode: 'replace', ...place })
+    : await $.prompt.fill({ text: rendered.text, mode: hasDraft ? 'insert' : 'replace', ...place })
   if (!filled.isFilled) return { kind: 'refused', reason: filled.refusal ?? 'the prompt box did not take the text' }
   if (held) await $.state.set(heldRef, null)
   const pendingCaret = planned.caret !== filled.cursor && filled.text === planned.text ? planned.caret : null
@@ -698,17 +700,26 @@ async function openTrash($: EngineInterface): Promise<{ text?: string }> {
   return opened
 }
 
-function hasVirtualText($: EngineInterface): Promise<boolean> {
-  virtualTextSupport ??= readVirtualText($)
-  return virtualTextSupport
+async function hasVirtualText($: EngineInterface): Promise<boolean> {
+  return (await patchOf($)) >= VIRTUAL_TEXT_PATCH
 }
 
-async function readVirtualText($: EngineInterface): Promise<boolean> {
+async function hasFillCursor($: EngineInterface): Promise<boolean> {
+  return (await patchOf($)) >= FILL_CURSOR_PATCH
+}
+
+function patchOf($: EngineInterface): Promise<number> {
+  sessionPatch ??= readSessionPatch($)
+  return sessionPatch
+}
+
+async function readSessionPatch($: EngineInterface): Promise<number> {
   const v = await $.session.version().catch(() => null)
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v?.base ?? v?.version ?? '')
-  if (!m) return false
+  if (!m) return -1
   const [major, minor, patch] = [Number(m[1]), Number(m[2]), Number(m[3])]
-  return major > 2 || (major === 2 && (minor > 1 || (minor === 1 && patch >= VIRTUAL_TEXT_PATCH)))
+  if (major > 2 || (major === 2 && minor > 1)) return Infinity
+  return major === 2 && minor === 1 ? patch : -1
 }
 
 function bodyEditHint(title: string, text: string): PromptDecoration {
@@ -1469,7 +1480,7 @@ export const register: Register = (on, options) => {
     await $.state.set(bodyEditRef, null)
     await $.state.set(endedEditRef, null)
     await $.state.set(heldRef, null)
-    virtualTextSupport = null
+    sessionPatch = null
     await $.command.register({ name: 'snippets', description: 'Pick, fill and manage saved prompt snippets (short: /sn)', argumentHint: '[query | slug! | new | trash | cancel | reload | rows | list | doctor | help]' })
     await $.command.register({ name: 'sn', description: 'Snippets picker (same as /snippets)', argumentHint: '[query | slug! | new | trash | cancel | reload | rows | list | doctor | help]' })
     const library = await reload($)

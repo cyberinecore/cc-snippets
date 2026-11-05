@@ -24,7 +24,7 @@ Every place where this plugin depends on Claude Code behaviour. `cc-plugin-compa
 | sec-default seating under managed settings or a Team login (bypasses prompt.section, context, compose, attachment, which the plugin does not hook) | README.md troubleshooting | 2.1.300 | it starts bypassing prompt.edit, prompt.change or prompt.submit |
 | `$.ui.open` result `isPlaced` / `reason`; `ui.render` event `surface`, `props.bodyColumns`; dock width capped at 45% (2.1.305) | hooks/register.tsx | 2.1.287 | the pane lays out wrong or an open failure is missed |
 | Mod elements `Box`, `Text`, `Button`, `Input` via `$.ui.resolve` | hooks/register.tsx | 2.1.287 | the pane does not draw |
-| `$.prompt.fill` options `mode`, `decorations`, result `isFilled` / `refusal`; `cursor` offset available from 2.1.309 (unused) | hooks/register.tsx | 2.1.287 | snippets are not inserted, or a refusal is missed |
+| `$.prompt.fill` options `mode`, `decorations`, result `isFilled` / `refusal`; `cursor` offset passed from 2.1.309, with the old `pendingCursor` plus `prompt.edit` path below 2.1.309 or when fill did not place the caret | hooks/register.tsx | 2.1.287 | snippets are not inserted, or a refusal is missed |
 | `prompt.edit` event `inputText`, rewrite result `{ text, cursor }`, `decorations` key | hooks/register.tsx | 2.1.287 | `;;` detection and the caret redirect break |
 | Event fields `origin.kind`, `e.id`, `e.element`; `command.run` `e.args`, `argumentHint` | hooks/register.tsx | 2.1.287 | commands and pane keys get wrong input |
 | `register(on, options)` options; `$.state` result `isSet` / `version`; `$.fs.list` entries `name`, `kind`, `mtimeMs` | hooks/register.tsx | 2.1.287 | the folder option, edit state or sort by date break |

@@ -40,4 +40,4 @@ Every place where this plugin depends on Claude Code behaviour. `cc-plugin-compa
 | Local install through `claude --plugin-dir`, single-plugin vs parent-folder discovery | README.md (install) | | the plugin loads wrongly from a local checkout |
 | Headless `claude -p`: commands run, no pane drawn | README.md (requirements), hooks/register.tsx | 2.1.287 | `/sn list` fails or a pane open hangs |
 
-Last verified: 2.1.311 (Claude Code), 2026-10-27
+Last verified: 2.1.318 (Claude Code), 2026-11-05

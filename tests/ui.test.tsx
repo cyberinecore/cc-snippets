@@ -712,12 +712,17 @@ describe('insert at the caret with ;;', () => {
       const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: paneProps(60, 'dock') })
       await ui.press({ key: `r:${ROOT}/multi-line.md` })
       await ui.unmount()
-      return { w, pending }
+      return { w, pending, native: w.cursors[w.cursors.length - 1] !== undefined }
     }
 
-    test('on 2.1.318 one fill puts the caret in place and nothing is stored for prompt.edit', async ($, on) => {
-      const { w, pending } = await pickInto($, on, '2.1.318')
+    test('on 2.1.318 one fill puts the caret in place and nothing is stored, or a runtime that drops cursor gets the stored caret', async ($, on) => {
+      const { w, pending, native } = await pickInto($, on, '2.1.318')
       expect(w.fills[w.fills.length - 1]).toBe(landed)
+      if (!native) {
+        expect(w.cursors[w.cursors.length - 1]).toBeUndefined()
+        expect(pending).toEqual([{ text: landed, cursor: caret, at: landed.length }])
+        return
+      }
       expect(w.cursors[w.cursors.length - 1]).toBe(caret)
       expect(w.box.cursor).toBe(caret)
       expect(pending).toEqual([])
@@ -731,12 +736,12 @@ describe('insert at the caret with ;;', () => {
     })
 
     test('on 2.1.318 a fill that did not move the caret falls back to the stored caret', async ($, on) => {
-      const { w, pending } = await pickInto($, on, '2.1.318', false)
-      expect(w.cursors[w.cursors.length - 1]).toBe(caret)
+      const { w, pending, native } = await pickInto($, on, '2.1.318', false)
+      if (native) expect(w.cursors[w.cursors.length - 1]).toBe(caret)
       expect(pending).toEqual([{ text: landed, cursor: caret, at: landed.length }])
     })
 
-    test('a draft held for the picker goes back with its caret in one fill on 2.1.318', async ($, on) => {
+    test('a draft held for the picker goes back with its caret in one fill on 2.1.318, or through the stored caret where cursor is dropped', async ($, on) => {
       const newer = world(on, { isPlaced: false })
       const pending = pendingWrites(on)
       version(on, '2.1.318')
@@ -745,7 +750,13 @@ describe('insert at the caret with ;;', () => {
       await $.command.run(run('reload'))
       await editOf($.prompt)(typeTrigger('keep ;this', 6))
       await clock.advance(1)
+      const native = newer.cursors[newer.cursors.length - 1] !== undefined
       expect(newer.fills[newer.fills.length - 1]).toBe('keep this')
+      if (!native) {
+        expect(newer.cursors[newer.cursors.length - 1]).toBeUndefined()
+        expect(pending).toEqual([{ text: 'keep this', cursor: 5, at: 9 }])
+        return
+      }
       expect(newer.cursors[newer.cursors.length - 1]).toBe(5)
       expect(pending).toEqual([])
     })

@@ -4,7 +4,7 @@ Every place where this plugin depends on Claude Code behaviour. `cc-plugin-compa
 
 | Contact point | Where in this repo | Needs CC | Breaks if Claude Code changes |
 |---|---|---|---|
-| hooks.json `modules` with one module (`./register.tsx`) | hooks/hooks.json | 2.1.300 (whole plugin, since 0.2.17) | the mod stops loading |
+| hooks.json `modules` with one module (`./register.tsx`) | hooks/hooks.json | 2.1.300 to load; 2.1.311 tested minimum (whole plugin, since 0.2.19) | the mod stops loading |
 | Mod rules: literal event names, no dynamic import, one module per plugin | hooks/register.tsx | 2.1.287 | validate refuses the mod |
 | `session.start` (resets caches, registers /snippets and /sn via `$.command.register`) | hooks/register.tsx | 2.1.287 | the commands are missing |
 | `command.run` matcher `{ command: 'sn' / 'snippets' }` | hooks/register.tsx | 2.1.287 | /sn and /snippets do nothing |
@@ -14,7 +14,7 @@ Every place where this plugin depends on Claude Code behaviour. `cc-plugin-compa
 | `prompt.change` hooked by name (no `prompt.*` wildcard, so sec-default prints no skip notices) | hooks/register.tsx | 2.1.300 | the plugin fails validate and stops loading; pause, resume and clear detection stop |
 | `prompt.change` origin kinds `history`, `clear`, `undo`, `plugin`; Enter raises `clear` about 43 ms before `prompt.submit` | hooks/register.tsx (CLEAR_GRACE_MS) | 2.1.300 | the 250 ms grace is too short or a body edit ends wrongly |
 | `$.prompt.fill` / `read` / `submit` | hooks/register.tsx | 2.1.287 | snippets are not inserted or sent |
-| `virtualText` + `dimColor` in a prompt result, gated on `$.session.version()` >= 2.1.300 | hooks/register.tsx (bodyEditHint) | 2.1.300 | the edit hint is missing or rejected |
+| `virtualText` + `dimColor` in a prompt result, always sent (no version gate since 0.2.19) | hooks/register.tsx (bodyEditHint) | 2.1.300 | the edit hint is missing or rejected |
 | `$.ui.open` (`closeOnEscape`, `holdToasts`, `rows`), `focus`, `resolve`, `toast`, `status`, `log`, `close` | hooks/register.tsx | 2.1.287; VS Code pane 2.1.299 | pane, toasts or status line break |
 | `$.fs.stat(path, { resolve: true }).realPath` | hooks/register.tsx (realLanding) | 2.1.287 | the real-path guard fails closed and refuses Delete, Move, Pin, Save |
 | `$.fs.exists` / `list` / `read` / `write` | hooks/register.tsx | 2.1.287 | snippets are not read or saved |
@@ -24,7 +24,7 @@ Every place where this plugin depends on Claude Code behaviour. `cc-plugin-compa
 | sec-default seating under managed settings or a Team login (bypasses prompt.section, context, compose, attachment, which the plugin does not hook) | README.md troubleshooting | 2.1.300 | it starts bypassing prompt.edit, prompt.change or prompt.submit |
 | `$.ui.open` result `isPlaced` / `reason`; `ui.render` event `surface`, `props.bodyColumns`; dock width capped at 45% (2.1.305) | hooks/register.tsx | 2.1.287 | the pane lays out wrong or an open failure is missed |
 | Mod elements `Box`, `Text`, `Button`, `Input` via `$.ui.resolve` | hooks/register.tsx | 2.1.287 | the pane does not draw |
-| `$.prompt.fill` options `mode`, `decorations`, result `isFilled` / `refusal`; `cursor` offset passed from 2.1.309, with the old `pendingCursor` plus `prompt.edit` path below 2.1.309 or when fill did not place the caret | hooks/register.tsx | 2.1.287 | snippets are not inserted, or a refusal is missed |
+| `$.prompt.fill` options `mode`, `decorations`, result `isFilled` / `refusal`; `cursor` offset always passed (2.1.309), with the `pendingCursor` plus `prompt.edit` path when fill did not place the caret | hooks/register.tsx | 2.1.287; `cursor` 2.1.309 | snippets are not inserted, or a refusal is missed |
 | `prompt.edit` event `inputText`, rewrite result `{ text, cursor }`, `decorations` key | hooks/register.tsx | 2.1.287 | `;;` detection and the caret redirect break |
 | Event fields `origin.kind`, `e.id`, `e.element`; `command.run` `e.args`, `argumentHint` | hooks/register.tsx | 2.1.287 | commands and pane keys get wrong input |
 | `register(on, options)` options; `$.state` result `isSet` / `version`; `$.fs.list` entries `name`, `kind`, `mtimeMs` | hooks/register.tsx | 2.1.287 | the folder option, edit state or sort by date break |

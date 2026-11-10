@@ -2,6 +2,10 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.19] - 2026-11-10
+
+- Needs Claude Code 2.1.311 or newer; use 0.2.18 on 2.1.300 to 2.1.310. Plugins cannot declare a minimum Claude Code version, so 2.1.300 to 2.1.310 still load this version, but it is no longer tested there. The plugin no longer reads the Claude Code version: it always passes the caret to the prompt box and always shows the dim save hint while you edit a body. A fill that does not place the caret still falls back to moving it on your next keystroke.
+
 ## [0.2.18] - 2026-11-05
 
 - On Claude Code 2.1.309 or newer, a snippet or a restored draft lands with the caret in place in one step, using the `cursor` option of `$.prompt.fill`, instead of moving the caret on your next keystroke. On 2.1.300 to 2.1.308 the caret still moves on the next keystroke, and so does a fill the prompt box did not give the asked caret. The plugin still needs Claude Code 2.1.300 or newer.

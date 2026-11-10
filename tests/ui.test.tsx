@@ -633,20 +633,9 @@ describe('manage', () => {
     expect((await $.command.run(run('cancel'))).text).toBe('snippets: nothing was being edited')
   })
 
-  test('the Claude Code version is read once per session, not on every keystroke of a body edit', async ($, on) => {
-    const w = world(on)
-    let reads = 0
-    on('session.version', async () => (reads++, { value: { version: '2.1.299', base: '2.1.299' } }))
-    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
-    await startBodyEdit($, w)
-    for (const ch of 'abc') await editOf($.prompt)({ origin: { kind: 'composer' }, text: 'Body', cursor: 4, start: 4, end: 4, inputText: ch })
-    expect(reads).toBe(1)
-  })
-
   test('while a body is edited the prompt box shows the save hint as virtual text, never in the text', async ($, on) => {
     if (!hasPromptChange($.prompt)) return
     const w = world(on)
-    on('session.version', async () => ({ value: { version: '2.1.300', base: '2.1.300' } }))
     on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
     await startBodyEdit($, w)
     expect(w.fills[0]).not.toMatch(/Enter saves/)
@@ -656,15 +645,6 @@ describe('manage', () => {
     expect(typed.decorations).toEqual([expect.objectContaining({ start: 5, end: 5, virtualText: expect.stringMatching(/Enter saves/) })])
   })
 
-  test('before Claude Code 2.1.300 the body edit carries no decorations', async ($, on) => {
-    const w = world(on)
-    on('session.version', async () => ({ value: { version: '2.1.299', base: '2.1.299' } }))
-    on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
-    await startBodyEdit($, w)
-    expect(w.decorations).toEqual([])
-    const typed = await editOf($.prompt)({ origin: { kind: 'composer' }, text: 'Body', cursor: 4, start: 4, end: 4, inputText: '!' })
-    expect(typed.decorations).toBeUndefined()
-  })
 })
 
 describe('insert at the caret with ;;', () => {
@@ -686,7 +666,6 @@ describe('insert at the caret with ;;', () => {
   })
 
   describe('the caret after the snippet lands', () => {
-    const version = (on: On, v: string) => on('session.version', async () => ({ value: { version: v, base: v } }))
     const pendingWrites = (on: On) => {
       const written: unknown[] = []
       on('state.set', async ($, e, next) => {
@@ -698,11 +677,10 @@ describe('insert at the caret with ;;', () => {
     const landed = 'fix Before writing code:\n1. Restate the goal.\n2. List the files.tail'
     const caret = landed.length - 'tail'.length
 
-    const pickInto = async ($: Parameters<TestBody>[0], on: On, v: string, honorCursor = true) => {
+    const pickInto = async ($: Parameters<TestBody>[0], on: On, honorCursor = true) => {
       const w = world(on)
       w.honorCursor = honorCursor
       const pending = pendingWrites(on)
-      version(on, v)
       const clock = mock.clock(on)
       on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
       await $.command.run(run('reload'))
@@ -715,8 +693,8 @@ describe('insert at the caret with ;;', () => {
       return { w, pending, native: w.cursors[w.cursors.length - 1] !== undefined }
     }
 
-    test('on 2.1.318 one fill puts the caret in place and nothing is stored, or a runtime that drops cursor gets the stored caret', async ($, on) => {
-      const { w, pending, native } = await pickInto($, on, '2.1.318')
+    test('one fill puts the caret in place and nothing is stored, or a runtime that drops cursor gets the stored caret', async ($, on) => {
+      const { w, pending, native } = await pickInto($, on)
       expect(w.fills[w.fills.length - 1]).toBe(landed)
       if (!native) {
         expect(w.cursors[w.cursors.length - 1]).toBeUndefined()
@@ -728,23 +706,15 @@ describe('insert at the caret with ;;', () => {
       expect(pending).toEqual([])
     })
 
-    test('on 2.1.308 fill carries no cursor and the caret waits in state for the next prompt.edit', async ($, on) => {
-      const { w, pending } = await pickInto($, on, '2.1.308')
-      expect(w.fills[w.fills.length - 1]).toBe(landed)
-      expect(w.cursors[w.cursors.length - 1]).toBeUndefined()
-      expect(pending).toEqual([{ text: landed, cursor: caret, at: landed.length }])
-    })
-
-    test('on 2.1.318 a fill that did not move the caret falls back to the stored caret', async ($, on) => {
-      const { w, pending, native } = await pickInto($, on, '2.1.318', false)
+    test('a fill that did not move the caret falls back to the stored caret', async ($, on) => {
+      const { w, pending, native } = await pickInto($, on, false)
       if (native) expect(w.cursors[w.cursors.length - 1]).toBe(caret)
       expect(pending).toEqual([{ text: landed, cursor: caret, at: landed.length }])
     })
 
-    test('a draft held for the picker goes back with its caret in one fill on 2.1.318, or through the stored caret where cursor is dropped', async ($, on) => {
+    test('a draft held for the picker goes back with its caret in one fill, or through the stored caret where cursor is dropped', async ($, on) => {
       const newer = world(on, { isPlaced: false })
       const pending = pendingWrites(on)
-      version(on, '2.1.318')
       const clock = mock.clock(on)
       on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
       await $.command.run(run('reload'))
@@ -761,18 +731,6 @@ describe('insert at the caret with ;;', () => {
       expect(pending).toEqual([])
     })
 
-    test('a draft held for the picker goes back through the stored caret on 2.1.308', async ($, on) => {
-      const older = world(on, { isPlaced: false })
-      const pending = pendingWrites(on)
-      version(on, '2.1.308')
-      const clock = mock.clock(on)
-      on('prompt.edit', async ($, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
-      await $.command.run(run('reload'))
-      await editOf($.prompt)(typeTrigger('keep ;this', 6))
-      await clock.advance(1)
-      expect(older.cursors[older.cursors.length - 1]).toBeUndefined()
-      expect(pending).toEqual([{ text: 'keep this', cursor: 5, at: 9 }])
-    })
   })
 
   test('when the picker cannot open, the held draft goes back unchanged', async ($, on) => {

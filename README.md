@@ -4,7 +4,7 @@
 
 A Claude Code plugin that keeps your saved prompts as plain Markdown files and puts them in the prompt box from a keyboard picker. Type `/snippets` (or the short `/sn`), or `;;` anywhere in a prompt you are writing, find a snippet, press Enter. Snippets are files, not skills, so they cost the model no context until you use one, and you can create, edit, duplicate, move, pin, delete and restore them without leaving the session.
 
-Requires Claude Code 2.1.300 or newer; on older versions Claude Code refuses to load the plugin. Use version 0.2.16 of the plugin on Claude Code 2.1.287 to 2.1.299. The plugin is a mod (function hooks), which loads in the terminal, the Desktop app's Code tab and the VS Code extension; the VS Code chat panel draws its pane from extension 2.1.299 (2.1.304 for a session that does not fetch feature flags, such as one on Amazon Bedrock). `claude -p` runs its commands but draws no pane, so use `/sn list` there.
+Requires Claude Code 2.1.311 or newer. Claude Code 2.1.300 to 2.1.310 still load the plugin, but it is not tested there, so use version 0.2.18 on those versions. Claude Code refuses to load the plugin before 2.1.300; use version 0.2.16 on Claude Code 2.1.287 to 2.1.299. The plugin is a mod (function hooks), which loads in the terminal, the Desktop app's Code tab and the VS Code extension; the VS Code chat panel draws its pane from extension 2.1.299 (2.1.304 for a session that does not fetch feature flags, such as one on Amazon Bedrock). `claude -p` runs its commands but draws no pane, so use `/sn list` there.
 
 ![The picker docked beside the transcript: search, numbered results, a preview and the tools row](assets/screenshot-picker-dock.png)
 

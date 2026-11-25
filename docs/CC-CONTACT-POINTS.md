@@ -34,10 +34,11 @@ Every place where this plugin depends on Claude Code behaviour. `cc-plugin-compa
 | Manifest keys `types`, `displayName`, `privacyPolicyUrl`, `$schema` | .claude-plugin/plugin.json | | validate --strict or the listing fails |
 | Marketplace entry `source: "./"` | .claude-plugin/marketplace.json | | install fails |
 | Installed-mod rollout switch; loading in a session that fetches no feature flags (Bedrock, VS Code with telemetry off from 2.1.311) | README.md (requirements, troubleshooting) | 2.1.304 for the VS Code pane without flags | /sn is unknown or the pane never draws |
-| Pane geometry `props.placement`, `props.scroll.bodyRows`, `viewport.rows` | hooks/register.tsx (paneLimit) | 2.1.287 | results clip or pagination is wrong |
+| Pane geometry `props.placement` (`dock`, `inline`, and desktop `widget` seen in 2.1.332, laid out as `dock`), `props.scroll.bodyRows`, `viewport.rows` | hooks/register.tsx (paneLimit, renderList) | 2.1.287 | results clip or pagination is wrong; a new placement value falls to the wrong layout |
 | Control props: Button `hotkey`, `onPress`, `autoFocus`, `role`; Input `value`, `onInput`, `onSubmit`, `submitLabel` | hooks/register.tsx | 2.1.287 | pane keys, search and buttons stop working |
-| `claude-code/testing` module: `describe`, `expect`, `mock`, `test` | tests/ui.test.tsx | 2.1.299 | `claude plugin test` cannot run the suite |
+| `claude-code/testing` module: `describe`, `expect`, `mock`, `test`, type `TestBody` (no longer exported from `claude-code` in 2.1.332) | tests/ui.test.tsx | 2.1.299 | `claude plugin test` cannot run the suite |
 | Local install through `claude --plugin-dir`, single-plugin vs parent-folder discovery | README.md (install) | | the plugin loads wrongly from a local checkout |
 | Headless `claude -p`: commands run, no pane drawn | README.md (requirements), hooks/register.tsx | 2.1.287 | `/sn list` fails or a pane open hangs |
+| `claude plugin validate --strict` type-checks the hooks module and tests against the build's `claude-code.d.ts` (2.1.323); CI runs it on `latest` | .github/workflows, hooks/register.tsx, tests/ui.test.tsx | 2.1.323 | CI fails on any type the build renames, moves or widens |
 
-Last verified: 2.1.318 (Claude Code), 2026-11-05
+Last verified: 2.1.332 (Claude Code), 2026-11-25

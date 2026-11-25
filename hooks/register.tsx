@@ -1,7 +1,7 @@
 import type { EngineInterface, PluginOptions, PromptDecoration, Register, RenderElement, RenderInput } from 'claude-code'
 import type { Draft, Filter, FormOp, InlineCap, Library, LoadError, MoveTarget, Snippet, SnippetMode, SnippetSource, SortBy, TrashItem, Usage, View } from '../types'
 import { insertAt, redirectEdit } from '../src/caret'
-import type { Layout } from '../src/look'
+import type { Layout, Placement } from '../src/look'
 import { BULLET, DOCK_CHROME, FIELDS, INLINE_CHROME, PAGE_SIZE, PIN_MARK, FORM_TITLE, LOOK, fit, layoutFor, pageSizeOf, metaLine, modeLabel, otherMode, plainLine, previewOf, rowColumns, shortDesc, sourceLetter, padStartCells, textRows, wrappedRows } from '../src/look'
 import { applyDraftPatch, cleanFolder, folderOf, isUnder, joinPath, valueOf, mergeSources, parseSnippet, serializeSnippet, shortSlug, slugFromPath, slugify, titleFromDraft, trashSlug } from '../src/model'
 import { clockValues, placeholdersOf, renderBody } from '../src/placeholders'
@@ -732,7 +732,7 @@ async function endBodyEdit($: EngineInterface, saved = false): Promise<void> {
 
 async function paneLimit($: EngineInterface, e: PaneEvent): Promise<number | null> {
   const bodyRows = e.props.scroll.bodyRows
-  if (e.props.placement === 'dock') return bodyRows > 0 ? bodyRows : null
+  if (e.props.placement !== 'inline') return bodyRows > 0 ? bodyRows : null
   const cap = (await $.state.get(inlineCapRef)).value ?? null
   return cap && cap.viewportRows === (e.viewport?.rows ?? 0) ? cap.bodyRows : null
 }
@@ -805,7 +805,7 @@ async function renderList($: EngineInterface, e: PaneEvent, limit: number | null
   const { value: stale } = await $.state.get(staleRef)
   const notice = (await $.state.get(noticeRef)).value ?? ''
   const all = library?.snippets ?? []
-  const placement = e.props.placement
+  const placement: Placement = e.props.placement === 'inline' ? 'inline' : 'dock'
   const cols = Math.max(20, e.props.bodyColumns - 1)
   const matches = (q: string, f: Filter, order: readonly string[] = pinOrder) => rank(all.filter(s => (f.source === 'all' || s.source === f.source) && (!f.tag || s.tags.includes(f.tag))), q, usage, { recent, by: sortBy, pinOrder: order })
   const hits = matches(query, filter)

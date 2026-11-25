@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
-import type { On, PromptEditInput, PromptEditResult, TestBody } from 'claude-code'
+import type { On, PromptEditInput, PromptEditResult } from 'claude-code'
+import type { TestBody } from 'claude-code/testing'
 
 const PLUGIN = 'cyberine-snippets'
 const PANE = 'snippets'
@@ -145,6 +146,22 @@ describe('picker', () => {
 })
 
 describe('page size', () => {
+  test('a desktop widget seat lays out like the dock, sized from its body rows', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })
+    await $.command.run(run(''))
+    const resultRows = async (placement: 'dock' | 'widget') => {
+      const props = { ...paneProps(60, 'dock'), placement, scroll: { offset: 0, bodyRows: 8 } }
+      const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: PANE, props })
+      const n = (await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('r:')).length
+      await ui.unmount()
+      return n
+    }
+    const docked = await resultRows('dock')
+    expect(docked).toBeLessThan(10)
+    expect(await resultRows('widget')).toBe(docked)
+  })
+
   test('inline panes size pages from the requested rows, not the last drawn height', async ($, on) => {
     const w = world(on)
     for (let i = 0; i < 12; i++) w.files.set(`${ROOT}/extra-${i}.md`, { text: `---\ntitle: Extra ${i}\n---\nbody ${i}\n`, mtimeMs: 100 + i })

@@ -2,6 +2,11 @@
 
 All notable changes to Cyberine Snippets. Versions follow `version` in `.claude-plugin/plugin.json`.
 
+## [0.2.20] - 2026-11-25
+
+- In the desktop app, a minimized picker (the `widget` seat, first seen in Claude Code 2.1.332) is laid out like the docked pane, sized from its own rows, instead of like the inline block above the prompt.
+- `claude plugin validate --strict` passes on Claude Code 2.1.332, which type-checks a plugin's TypeScript since 2.1.323: the tests take `TestBody` from `claude-code/testing`, where it now lives.
+
 ## [0.2.19] - 2026-11-10
 
 - Needs Claude Code 2.1.311 or newer; use 0.2.18 on 2.1.300 to 2.1.310. Plugins cannot declare a minimum Claude Code version, so 2.1.300 to 2.1.310 still load this version, but it is no longer tested there. The plugin no longer reads the Claude Code version: it always passes the caret to the prompt box and always shows the dim save hint while you edit a body. A fill that does not place the caret still falls back to moving it on your next keystroke.
